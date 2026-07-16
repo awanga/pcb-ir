@@ -24,6 +24,7 @@ nav:
   - C ABI: c-abi.md
   - Conformance: conformance.md
   - Extensions & governance: extensions-governance.md
+  - Glossary: glossary.md
   - C++ style guide: cpp-style.md
 
 markdown_extensions:

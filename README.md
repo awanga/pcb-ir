@@ -42,7 +42,9 @@ PCB-IR aims to make:
 
 ## Status
 
-Early architecture and schema development.
+Early architecture and schema development. The first release is an interchange-first MVP
+(core model, geometry, connectivity, stackup, serialization, and a KiCad round-trip) — the
+first slice toward the full vision above, not a reduced scope.
 
 ## License
 
