@@ -1,0 +1,34 @@
+# Build artifacts
+/build/
+/dist/
+/out/
+
+# Conan
+/conan/
+.conan/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated schemas
+/generated/
+
+# Logs and caches
+*.log
+.cache/
+
+# Local planning files
+/*.md
+!/README.md
