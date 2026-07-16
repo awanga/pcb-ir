@@ -1,0 +1,13 @@
+{
+    "version": "0.5",
+    "requires": [
+        "flatbuffers/25.12.19#071c47a360801bf3ee2aaa81262c5040%1779873584.15",
+        "clipper2/2.0.1#bf89081942ff1dadedb35492ef2c03e8%1774364477.05",
+        "catch2/3.15.2#b16b3826eda0625d87c766722c6a43f4%1783695959.434"
+    ],
+    "build_requires": [
+        "cmake/4.4.0#a5dd5d73bd9fc56b0fc3163a04573dc8%1784051561.926"
+    ],
+    "python_requires": [],
+    "config_requires": []
+}

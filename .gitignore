@@ -2,6 +2,8 @@
 /build/
 /dist/
 /out/
+/site/
+/CMakeUserPresets.json
 
 # Conan
 /conan/
@@ -32,3 +34,4 @@ Thumbs.db
 # Local planning files
 /*.md
 !/README.md
+!/CONTRIBUTING.md
