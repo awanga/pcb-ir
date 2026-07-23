@@ -11,7 +11,11 @@
 ## Encoding
 
 - FlatBuffers. Schemas live in `schemas/*.fbs`.
-- No floating-point values on the wire. Coordinates are int64 nanometers.
+- No floating-point values on the wire. Coordinates are int64 nanometers, giving a
+  representable range of roughly ±9.2e9 meters (the full `int64_t` range) -- vastly beyond
+  any real board, but the honest bound of the type. Arithmetic that would overflow this range
+  is a checked condition (`pcbir::geometry::checked_add`/`checked_sub`/`checked_mul`), not
+  silent wraparound.
 
 ## Versioning policy
 
