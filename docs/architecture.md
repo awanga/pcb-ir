@@ -25,6 +25,19 @@ This separation exists because FlatBuffers buffers are immutable once built.
   component tables (geometry, connectivity, stackup reference, metadata), not a deep class
   hierarchy. This keeps layers independently extensible and cache-friendly.
 
+## Identity & versioning
+
+- **`EntityId`** — a stable, monotonically assigned 64-bit identity for a logical entity. It
+  is never reused and is carried across every future commit for that entity's lifetime; it is
+  what the serialized schema and cross-layer references (e.g. a via naming a stackup layer)
+  use. Distinct from a `Handle`, which is an arena-slot reference.
+- **`Handle<Tag>`** — an arena-local, generation-checked (index, generation) pair used for
+  fast in-memory lookup and use-after-erase detection. A handle is not guaranteed to survive
+  arena reorganizations (e.g. slot reuse after an erase) the way an `EntityId` is; call
+  `Arena::find(EntityId)` to recover a fresh handle when needed.
+- **`SnapshotVersion`** — a monotonically increasing counter on the snapshot lineage,
+  incremented by one on every `Workspace::commit()`.
+
 ## Determinism
 
 No floating point in serialized output. Canonical element ordering and stable iteration are
