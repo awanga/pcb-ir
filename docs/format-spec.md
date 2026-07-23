@@ -33,8 +33,20 @@
 ## Geometry encoding
 
 - Segments and arcs are stored symbolically and exactly (arc = endpoints + center/sweep).
-- Splines/teardrops are flattened deterministically to arcs/segments on import; the
-  flattening tolerance is fixed and documented here. Flattening is lossy by design.
+- Splines/teardrops (cubic Beziers) are flattened deterministically to segments on import,
+  via a **fixed** number of De Casteljau bisections (`BEZIER_FLATTEN_DEPTH = 10`,
+  `pcbir::geometry::flatten_cubic_bezier`) rather than an adaptive, threshold-based
+  algorithm. This is deliberate: bisection at t=1/2 is pure integer add + divide-by-2, so the
+  result is bit-for-bit identical across platforms, whereas an adaptive flatness test would
+  need either wide (>64-bit) integer comparisons or floating point, both of which risk
+  cross-platform divergence (FMA contraction, extended-precision registers) that would break
+  the byte-identical-snapshot invariant. A cubic Bezier's control-polygon deviation from the
+  true curve shrinks by at least 4x per bisection, so depth `n` bounds the worst-case
+  flattening error at `(initial control-polygon deviation) / 4^n`. At `n = 10` (1024
+  segments per curve), even a curve whose control points span the full documented coordinate
+  range (~9.2e9 m) flattens to within about 1 micrometer of the true curve; any real
+  board-scale curve (mm–cm control polygons) flattens far tighter. Flattening is lossy by
+  design; the original curve is not recoverable from the flattened segments.
 
 ## Extensions
 
