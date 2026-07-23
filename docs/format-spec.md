@@ -47,6 +47,15 @@
   range (~9.2e9 m) flattens to within about 1 micrometer of the true curve; any real
   board-scale curve (mm–cm control polygons) flattens far tighter. Flattening is lossy by
   design; the original curve is not recoverable from the flattened segments.
+- A polygon (`pcbir::geometry::Polygon`) is an outline plus zero or more holes, each a closed
+  loop (`Contour`) of segment/arc spans. **Self-intersection and orientation are both defined
+  over each span's chord** (an arc's straight start-end line, not its true curved shape), not
+  the arc's true swept shape: two circles generically intersect at irrational coordinates, so
+  exact arc-arc intersection *existence* cannot be decided in integer arithmetic the way
+  segment-segment crossing can (via orientation predicates alone, with no need to compute the
+  intersection point itself). This is consistent with Clipper2 already flattening arcs at the
+  boolean-op boundary. Winding convention: outline is CounterClockwise, holes are Clockwise.
+  Hole-in-outline containment is not yet checked (deferred to the broader validation pass).
 
 ## Extensions
 

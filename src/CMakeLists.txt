@@ -3,6 +3,8 @@
 add_library(pcbir_core
   pcbir/version.cpp
   pcbir/geometry/bezier.cpp
+  pcbir/geometry/contour.cpp
+  pcbir/geometry/polygon.cpp
 )
 
 target_include_directories(pcbir_core
