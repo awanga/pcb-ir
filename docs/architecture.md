@@ -59,6 +59,20 @@ and the Constraint System (DFM/assembly rules, Post-MVP); electrical intent span
 Connectivity (diff pairs, buses) and the Constraint System (impedance/timing/skew rules,
 Post-MVP).
 
+## Spatial indexing
+
+`pcbir::geometry::SpatialIndex` (`include/pcbir/geometry/spatial_index.hpp`) is a uniform
+grid over `BBox`es, used for region queries (e.g. "which primitives overlap this rectangle").
+It is a query-time-only auxiliary structure, not part of any snapshot or the wire format: it
+is built from a snapshot's entities after loading, discarded or rebuilt freely, and never
+serialized. This is the MVP default per the locked strategy decision (no Boost.Geometry or
+other new dependency); Boost.Geometry remains a reserved, opt-in backend candidate only if
+profiling later shows the custom grid insufficient at scale, and is never used for
+boolean/offset operations, which stay on Clipper2 regardless. Each inserted box is bucketed
+into every grid cell it overlaps; a query unions the candidates from every cell the query
+region overlaps and then narrows to an exact intersection test, so it always returns the same
+set brute force would, never an over-approximation.
+
 ## Extensibility mechanism
 
 Two schema-level escape hatches exist from v0.1 onward so future/esoteric cases (RF
