@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 find_package(flatbuffers REQUIRED)
+find_package(clipper2 REQUIRED)
 
 # Generates ${CMAKE_SOURCE_DIR}/generated/geometry_generated.h from
 # schemas/geometry.fbs (see docs/format-spec.md). build_flatbuffers() also
@@ -22,6 +23,7 @@ add_library(pcbir_core
   pcbir/geometry/polygon.cpp
   pcbir/geometry/path.cpp
   pcbir/geometry/serialize.cpp
+  pcbir/geometry/boolean.cpp
 )
 
 add_dependencies(pcbir_core pcbir_geometry_schema)
@@ -32,4 +34,4 @@ target_include_directories(pcbir_core
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(pcbir_core PRIVATE pcbir_warnings flatbuffers::flatbuffers)
+target_link_libraries(pcbir_core PRIVATE pcbir_warnings flatbuffers::flatbuffers clipper2::clipper2)

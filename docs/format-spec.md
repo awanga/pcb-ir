@@ -57,6 +57,39 @@
   boolean-op boundary. Winding convention: outline is CounterClockwise, holes are Clockwise.
   Hole-in-outline containment is not yet checked (deferred to the broader validation pass).
 
+## Boolean operations (Clipper2 boundary)
+
+- `pcbir::geometry::boolean_op` (`include/pcbir/geometry/boolean.hpp`) wraps Clipper2's
+  integer polygon-clipping engine for union/intersect/difference. Clipper2 itself is never
+  named in a public PCB-IR header (header-hygiene invariant); every input/output type at this
+  boundary is PCB-IR's own `Polygon`.
+- **Arc flattening at this boundary is the one place in this module that is not bit-exact
+  across platforms.** Clipper2 has no concept of a curved edge, so an arc span is flattened to
+  a fixed number of straight chords (`ARC_FLATTEN_SEGMENTS_PER_FULL_TURN = 64` segments per
+  full 360-degree turn, proportional for a partial sweep, rounded up to at least one segment)
+  before crossing into Clipper2, using `std::atan2`/`std::cos`/`std::sin`/`std::hypot`.
+  Placing a point on a circle at an arbitrary angle is inherently irrational in integer
+  coordinates in general (unlike the cubic-Bezier midpoint bisection above, which is exact
+  integer arithmetic), so this step cannot be made cross-platform bit-identical the way
+  Bezier flattening is. This is a deliberate, narrower guarantee: it is documented as
+  best-effort, and it is never the canonical serialized representation of the source arc --
+  only a transient input to a single boolean-op call. Every polygon `boolean_op` returns is
+  therefore pure-Segment, even if an input polygon had arcs.
+- Fill rule: `NonZero`. Input polygons already follow this module's own winding convention
+  (CounterClockwise outline, Clockwise holes -- see Geometry encoding above), which maps
+  directly onto NonZero fill: a hole's opposite winding cancels the outline's contribution in
+  the overlap without needing separate outline/hole tagging.
+- **Deterministic input ordering**: polygons are converted to Clipper2 paths in the order
+  given -- subjects then clips, each polygon's outline then its holes in declaration order,
+  each contour's spans in declaration order -- and never reordered by sorting, hashing, or
+  pointer identity. Clipper2's own clipping algorithm is itself deterministic (integer
+  arithmetic, no unordered containers), so fixed input ordering is sufficient for the same
+  logical input to always produce the same output bytes.
+- Output reconstruction walks Clipper2's `PolyTree64` solution tree rather than its flat
+  `Paths64` list, so nested holes and islands-within-holes are correctly reassembled into
+  PCB-IR's outline-plus-holes `Polygon` shape (a flat path list alone cannot distinguish a
+  hole from a disjoint second outline).
+
 ## Extensions
 
 - Namespaced; see `docs/extensions-governance.md`.
