@@ -30,6 +30,19 @@ public:
     return std::get<detail::CowTable<T>>(tables_).write().insert(std::move(value), id);
   }
 
+  // Inserts `value` under a caller-specified id rather than allocating a
+  // fresh one -- for reconstructing a workspace from serialized data
+  // (docs/format-spec.md), where every entity's id is already fixed and
+  // must be preserved, not reassigned. Advances the id allocator past `id`
+  // so future insert() calls never collide with a restored id, even if
+  // restored ids arrive out of order.
+  template <typename T> Handle<T> insert_with_id(T value, EntityId id) {
+    if (id.value() >= next_id_.value()) {
+      next_id_ = EntityId{id.value() + 1};
+    }
+    return std::get<detail::CowTable<T>>(tables_).write().insert(std::move(value), id);
+  }
+
   template <typename T> void erase(Handle<T> handle) {
     std::get<detail::CowTable<T>>(tables_).write().erase(handle);
   }

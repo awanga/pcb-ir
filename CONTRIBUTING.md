@@ -36,6 +36,10 @@ Optional components are gated behind CMake flags (all default `OFF`, see `CMakeL
 also requires the matching Conan option (e.g. `-o with_bench=True`), and regenerating
 `conan.lock` for that option combination (`conan.lock` only pins the default lean-core set).
 
+`schemas/*.fbs` are compiled to `generated/*_generated.h` automatically as part of the build
+(via `flatc`, see `src/CMakeLists.txt`); `generated/` is gitignored build output, never edited
+by hand.
+
 ## Before committing
 
 All of the following must pass before committing non-trivial changes (enforced in CI):

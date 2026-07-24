@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: Apache-2.0
+// Geometry-layer schema (docs/architecture.md; TASKS.md Phase 2). Composed
+// into the root snapshot schema in a later phase (docs/format-spec.md);
+// GeometrySnapshot here is a standalone root so the geometry layer can be
+// round-tripped and tested in isolation first.
+namespace pcbir.geometry.fbs;
+
+// Fixed-layout: mirrors pcbir::geometry::Point exactly (int64 nanometers).
+struct Point {
+  x:int64;
+  y:int64;
+}
+
+enum ArcDirection:ubyte { Clockwise, CounterClockwise }
+
+// Segment/Arc are `table` (not `struct`) because FlatBuffers unions can
+// only reference tables, and both participate in the Span union below.
+table Segment {
+  start:Point;
+  finish:Point; // "end" is a reserved word in the schema language.
+}
+
+table Arc {
+  start:Point;
+  finish:Point;
+  center:Point;
+  direction:ArcDirection;
+}
+
+union Span { Segment, Arc }
+
+table WidthSpan {
+  geometry:Span;
+  width_nm:int64;
+}
+
+// A closed loop (pcbir::geometry::Contour).
+table Contour {
+  spans:[Span];
+}
+
+// An open, per-span-width polyline (pcbir::geometry::Path).
+table Path {
+  spans:[WidthSpan];
+}
+
+table Polygon {
+  outline:Contour;
+  holes:[Contour];
+}
+
+table Pad {
+  position:Point;
+  outline:Polygon;
+  layer:uint64;
+}
+
+table Via {
+  position:Point;
+  drill_diameter_nm:int64;
+  finished_hole_diameter_nm:int64;
+  pad_diameter_nm:int64;
+  start_layer:uint64;
+  end_layer:uint64;
+}
+
+table Track {
+  path:Path;
+  layer:uint64;
+}
+
+table CopperPour {
+  outline:Polygon;
+  layer:uint64;
+}
+
+table Keepout {
+  outline:Polygon;
+  layer:uint64;
+}
+
+table DrillHit {
+  position:Point;
+  diameter_nm:int64;
+  plated:bool;
+}
+
+table MaskOpening {
+  outline:Polygon;
+  layer:uint64;
+}
+
+table SilkscreenGraphic {
+  path:Path;
+  layer:uint64;
+}
+
+// Every board entity also carries the stable EntityId (docs/architecture.md)
+// it was assigned in the workspace it was built from, so a load -> edit ->
+// save round trip preserves identity, not just shape.
+table PadEntry { id:uint64; value:Pad; }
+table ViaEntry { id:uint64; value:Via; }
+table TrackEntry { id:uint64; value:Track; }
+table CopperPourEntry { id:uint64; value:CopperPour; }
+table KeepoutEntry { id:uint64; value:Keepout; }
+table DrillHitEntry { id:uint64; value:DrillHit; }
+table MaskOpeningEntry { id:uint64; value:MaskOpening; }
+table SilkscreenGraphicEntry { id:uint64; value:SilkscreenGraphic; }
+
+table GeometrySnapshot {
+  pads:[PadEntry];
+  vias:[ViaEntry];
+  tracks:[TrackEntry];
+  copper_pours:[CopperPourEntry];
+  keepouts:[KeepoutEntry];
+  drill_hits:[DrillHitEntry];
+  mask_openings:[MaskOpeningEntry];
+  silkscreen_graphics:[SilkscreenGraphicEntry];
+}
+
+root_type GeometrySnapshot;

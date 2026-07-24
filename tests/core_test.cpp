@@ -92,6 +92,20 @@ TEST_CASE("Workspace insert/commit exposes the entity through a read-only snapsh
   REQUIRE(snap.version() == SnapshotVersion{1});
 }
 
+TEST_CASE("insert_with_id preserves a caller-specified id and advances the allocator",
+          "[core][workspace]") {
+  Workspace<Widget> ws;
+  const Handle<Widget> restored = ws.insert_with_id(Widget{7}, EntityId{100});
+  const Handle<Widget> next = ws.insert(Widget{8});
+
+  const Snapshot<Widget> snap = ws.commit();
+
+  REQUIRE(snap.table<Widget>().id_of(restored) == EntityId{100});
+  // The allocator was advanced past the restored id, so the next auto id
+  // never collides with it.
+  REQUIRE(snap.table<Widget>().id_of(next) == EntityId{101});
+}
+
 TEST_CASE("Committing again does not mutate a previously taken snapshot",
           "[core][workspace][determinism]") {
   Workspace<Widget> ws;
