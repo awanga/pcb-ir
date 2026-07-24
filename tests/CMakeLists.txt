@@ -10,6 +10,8 @@ add_executable(pcbir_tests
   geometry/bezier_test.cpp
   geometry/contour_test.cpp
   geometry/polygon_test.cpp
+  geometry/path_test.cpp
+  geometry/entities_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 

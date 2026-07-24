@@ -5,6 +5,7 @@ add_library(pcbir_core
   pcbir/geometry/bezier.cpp
   pcbir/geometry/contour.cpp
   pcbir/geometry/polygon.cpp
+  pcbir/geometry/path.cpp
 )
 
 target_include_directories(pcbir_core
