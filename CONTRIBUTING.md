@@ -36,6 +36,32 @@ Optional components are gated behind CMake flags (all default `OFF`, see `CMakeL
 also requires the matching Conan option (e.g. `-o with_bench=True`), and regenerating
 `conan.lock` for that option combination (`conan.lock` only pins the default lean-core set).
 
+`PCBIR_BUILD_FUZZ` (`fuzz/`) requires **Clang** specifically: it links libFuzzer via
+`-fsanitize=fuzzer`, a Clang-only flag (CMake configure fails with a clear error under any
+other compiler). It needs no extra Conan package (`with_fuzz` exists for symmetry with the
+other flags, but the fuzzer runtime ships inside Clang itself), so a from-scratch build looks
+like:
+
+```sh
+CC=clang CXX=clang++ conan install . -o with_fuzz=True -s compiler=clang \
+    -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja \
+    --output-folder=build/Fuzz --build=missing
+cmake -S . -B build/Fuzz/build/Release -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE=build/Fuzz/build/Release/generators/conan_toolchain.cmake \
+    -DCMAKE_BUILD_TYPE=Release -DPCBIR_BUILD_FUZZ=ON -DBUILD_TESTING=OFF
+cmake --build build/Fuzz/build/Release
+./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus  # fuzz
+./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus/*  # replay the seed corpus once, no mutation
+```
+
+`fuzz/corpus/` holds the committed starting seeds (valid serialized geometry snapshots); this
+target is not currently wired into `ctest`/CI (that is a separate, later task, TASKS.md Phase
+9). `pcbir::geometry::deserialize_geometry` does not yet verify a buffer before reading it
+(see its own doc comment), so fuzzing past the seed corpus is expected to find a crash on
+malformed input quickly -- that is this target doing its job, not a regression in it;
+hardening the deserializer itself against corrupt input is a separate, later task (TASKS.md
+Phase 5).
+
 `schemas/*.fbs` are compiled to `generated/*_generated.h` automatically as part of the build
 (via `flatc`, see `src/CMakeLists.txt`); `generated/` is gitignored build output, never edited
 by hand.

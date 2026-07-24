@@ -33,3 +33,7 @@ add_subdirectory(src)
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
+
+if(PCBIR_BUILD_FUZZ)
+  add_subdirectory(fuzz)
+endif()
