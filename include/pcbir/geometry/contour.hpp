@@ -53,6 +53,26 @@ enum class ContourValidity : uint8_t {
 // vertex (adjacent spans, by construction) is not itself a violation.
 [[nodiscard]] ContourValidity validate(const Contour& contour);
 
+// Whether chord (a1,a2) and chord (b1,b2) properly cross -- a transversal
+// intersection in their interiors, not just touching at a shared
+// endpoint. Exact (no floating point) orientation-predicate test;
+// exposed (not `validate`-internal) so a hole's chords can be tested
+// against its outline's, not only a single Contour's chords against
+// themselves (Polygon::validate's hole-containment check). Overflow
+// while evaluating either orientation is conservatively treated as a
+// crossing, matching `validate`'s own overflow handling.
+[[nodiscard]] bool
+chords_properly_cross(const Point& a1, const Point& a2, const Point& b1, const Point& b2);
+
+// Exact (no floating point) even-odd crossing-number test for whether
+// `point` lies inside `contour`'s chord-approximated boundary (see this
+// header's own chord-based-everything rationale). A computation that
+// overflows returns false. A point exactly on the boundary is
+// unspecified (may return either result, like the classic even-odd
+// point-in-polygon test this implements) -- this is a "definitely
+// inside" test for interior points, not a boundary classifier.
+[[nodiscard]] bool contour_strictly_contains(const Contour& contour, const Point& point);
+
 } // namespace pcbir::geometry
 
 #endif // PCBIR_GEOMETRY_CONTOUR_HPP

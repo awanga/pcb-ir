@@ -8,7 +8,9 @@
 
 using pcbir::geometry::Arc;
 using pcbir::geometry::ArcDirection;
+using pcbir::geometry::chords_properly_cross;
 using pcbir::geometry::Contour;
+using pcbir::geometry::contour_strictly_contains;
 using pcbir::geometry::ContourValidity;
 using pcbir::geometry::orientation;
 using pcbir::geometry::Orientation;
@@ -124,4 +126,34 @@ TEST_CASE("A contour mixing segments and arcs (a stadium/pill shape) is valid",
       }};
 
   REQUIRE(validate(pill) == ContourValidity::Valid);
+}
+
+TEST_CASE("chords_properly_cross detects a transversal crossing but not shared-endpoint touching",
+          "[geometry][contour]") {
+  REQUIRE(chords_properly_cross(Point{.x = 0, .y = 0},
+                                Point{.x = 10, .y = 10},
+                                Point{.x = 0, .y = 10},
+                                Point{.x = 10, .y = 0}));
+  REQUIRE_FALSE(chords_properly_cross(Point{.x = 0, .y = 0},
+                                      Point{.x = 10, .y = 0},
+                                      Point{.x = 10, .y = 0},
+                                      Point{.x = 10, .y = 10}));
+  REQUIRE_FALSE(chords_properly_cross(Point{.x = 0, .y = 0},
+                                      Point{.x = 10, .y = 0},
+                                      Point{.x = 20, .y = 0},
+                                      Point{.x = 30, .y = 0}));
+}
+
+TEST_CASE("contour_strictly_contains is an exact even-odd point-in-polygon test",
+          "[geometry][contour]") {
+  const Contour square{
+      .spans = {
+          Span{Segment{.start = Point{.x = 0, .y = 0}, .end = Point{.x = 10, .y = 0}}},
+          Span{Segment{.start = Point{.x = 10, .y = 0}, .end = Point{.x = 10, .y = 10}}},
+          Span{Segment{.start = Point{.x = 10, .y = 10}, .end = Point{.x = 0, .y = 10}}},
+          Span{Segment{.start = Point{.x = 0, .y = 10}, .end = Point{.x = 0, .y = 0}}},
+      }};
+
+  REQUIRE(contour_strictly_contains(square, Point{.x = 5, .y = 5}));
+  REQUIRE_FALSE(contour_strictly_contains(square, Point{.x = 50, .y = 50}));
 }

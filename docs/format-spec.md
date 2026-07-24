@@ -55,7 +55,39 @@
   segment-segment crossing can (via orientation predicates alone, with no need to compute the
   intersection point itself). This is consistent with Clipper2 already flattening arcs at the
   boolean-op boundary. Winding convention: outline is CounterClockwise, holes are Clockwise.
-  Hole-in-outline containment is not yet checked (deferred to the broader validation pass).
+  Hole-in-outline containment is checked: no hole chord may properly cross an outline chord
+  (`pcbir::geometry::chords_properly_cross`), and a hole's first vertex must lie inside the
+  outline (`pcbir::geometry::contour_strictly_contains`, an exact even-odd point-in-polygon
+  test over the same chord-approximated boundary). A hole touching the outline at exactly one
+  point without crossing it is not currently detected -- see the code's own documented
+  boundary-case caveat.
+
+## Diagnostic codes
+
+`pcbir::geometry::DiagnosticCode` (`include/pcbir/geometry/diagnostics.hpp`) is the one unified,
+stable code space every board-entity type's validation reports into -- a code's numeric value
+never changes once shipped (new codes are only appended). `pcbir::geometry::validate(...)`
+(one overload per entity type, plus a `validate(const GeometrySnapshot&)` pass that walks
+every entity in every table and returns a `Diagnostic{EntityId, DiagnosticCode}` per invalid
+entity) is how a caller runs this uniformly across a whole board without switching on each
+entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`PathValidity`).
+
+| Code | Value | Meaning |
+|---|---|---|
+| `Valid` | 0 | No problem found. |
+| `InvalidOutline` | 1 | An entity's outline `Contour` fails `ContourValidity` (too few spans, discontinuous, an invalid arc span, or self-intersecting). |
+| `OutlineWrongOrientation` | 2 | An outline is not wound CounterClockwise. |
+| `InvalidHole` | 3 | A hole `Contour` fails `ContourValidity`. |
+| `HoleWrongOrientation` | 4 | A hole is not wound Clockwise. |
+| `HoleOutsideOutline` | 5 | A hole crosses, or is not contained within, its outline. |
+| `EmptyPath` | 6 | A `Track`/`SilkscreenGraphic`'s `Path` has no spans. |
+| `DiscontinuousPath` | 7 | Consecutive spans in a `Path` don't share an endpoint. |
+| `InvalidArcSpan` | 8 | An arc span (in a `Contour` or `Path`) fails `Arc::is_valid`. |
+| `NonPositiveSpanWidth` | 9 | A `Path` span's `width_nm` is not positive. |
+| `NonPositiveDrillDiameter` | 10 | A `Via`'s `drill_diameter_nm`, or a `DrillHit`'s `diameter_nm`, is not positive. |
+| `NonPositiveFinishedHoleDiameter` | 11 | A `Via`'s `finished_hole_diameter_nm` is not positive. |
+| `NonPositivePadDiameter` | 12 | A `Via`'s `pad_diameter_nm` is not positive. |
+| `NonPositiveAnnularRing` | 13 | A `Via`'s derived `annular_ring_nm()` is not positive (`pad_diameter_nm` doesn't exceed `finished_hole_diameter_nm`). |
 
 ## Boolean operations (Clipper2 boundary)
 

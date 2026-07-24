@@ -45,24 +45,6 @@ namespace {
   return true;
 }
 
-// Whether chord (p1,p2) and chord (p3,p4) properly cross (a transversal
-// intersection in their interiors) -- shared-endpoint touching is not a
-// "proper" crossing. Overflow while evaluating either orientation test is
-// treated as a crossing: this validation prefers a false-positive rejection
-// over silently accepting a contour it cannot actually verify.
-[[nodiscard]] bool
-chords_cross(const Point& p1, const Point& p2, const Point& p3, const Point& p4) {
-  int d1 = 0;
-  int d2 = 0;
-  int d3 = 0;
-  int d4 = 0;
-  if (!orientation_sign(p1, p2, p3, d1) || !orientation_sign(p1, p2, p4, d2) ||
-      !orientation_sign(p3, p4, p1, d3) || !orientation_sign(p3, p4, p2, d4)) {
-    return true;
-  }
-  return (d1 * d2 < 0) && (d3 * d4 < 0);
-}
-
 // `count` is the total span count a closed loop wraps around at; it plays
 // a distinct role from the two span indices being compared.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -72,6 +54,41 @@ chords_cross(const Point& p1, const Point& p2, const Point& p3, const Point& p4)
 }
 
 } // namespace
+
+bool chords_properly_cross(const Point& a1, const Point& a2, const Point& b1, const Point& b2) {
+  int d1 = 0;
+  int d2 = 0;
+  int d3 = 0;
+  int d4 = 0;
+  if (!orientation_sign(a1, a2, b1, d1) || !orientation_sign(a1, a2, b2, d2) ||
+      !orientation_sign(b1, b2, a1, d3) || !orientation_sign(b1, b2, a2, d4)) {
+    return true;
+  }
+  return (d1 * d2 < 0) && (d3 * d4 < 0);
+}
+
+bool contour_strictly_contains(const Contour& contour, const Point& point) {
+  const std::size_t count = contour.spans.size();
+  bool inside = false;
+  for (std::size_t i = 0; i < count; ++i) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
+    const Point p1 = span_start(contour.spans[i]);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
+    const Point p2 = span_start(contour.spans[(i + 1) % count]);
+    if ((p1.y > point.y) == (p2.y > point.y)) {
+      continue;
+    }
+    int64_t cross_val = 0;
+    if (!cross(p2 - p1, point - p1, cross_val)) {
+      return false;
+    }
+    const bool edge_rises = p2.y > p1.y; // p1.y != p2.y, guaranteed by the straddle test above
+    if ((edge_rises && cross_val > 0) || (!edge_rises && cross_val < 0)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
 Orientation orientation(const Contour& contour) {
   const std::size_t count = contour.spans.size();
@@ -133,7 +150,7 @@ ContourValidity validate(const Contour& contour) {
       const Span& a = contour.spans[i];
       // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
       const Span& b = contour.spans[j];
-      if (chords_cross(span_start(a), span_end(a), span_start(b), span_end(b))) {
+      if (chords_properly_cross(span_start(a), span_end(a), span_start(b), span_end(b))) {
         return ContourValidity::SelfIntersecting;
       }
     }

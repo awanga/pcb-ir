@@ -60,6 +60,27 @@ TEST_CASE("A CCW hole is rejected", "[geometry][polygon]") {
   REQUIRE(validate(polygon) == PolygonValidity::HoleWrongOrientation);
 }
 
+TEST_CASE("A hole entirely outside the outline is rejected", "[geometry][polygon]") {
+  // Same shape/winding as cw_triangle() but translated far away from
+  // ccw_triangle() -- no chord crossing, but not contained either.
+  const Contour far_away_hole = make_triangle(
+      Point{.x = 100, .y = 100}, Point{.x = 100, .y = 103}, Point{.x = 103, .y = 100});
+  const Polygon polygon{.outline = ccw_triangle(), .holes = {far_away_hole}};
+
+  REQUIRE(validate(polygon) == PolygonValidity::HoleOutsideOutline);
+}
+
+TEST_CASE("A hole crossing the outline boundary is rejected", "[geometry][polygon]") {
+  // Wound Clockwise (required to pass the orientation check) but large
+  // enough that its (3,3)-(3,12) edge crosses the outline's hypotenuse
+  // (x + y = 10) at (3, 7), rather than nesting inside it.
+  const Contour crossing_hole =
+      make_triangle(Point{.x = 3, .y = 3}, Point{.x = 3, .y = 12}, Point{.x = 12, .y = 3});
+  const Polygon polygon{.outline = ccw_triangle(), .holes = {crossing_hole}};
+
+  REQUIRE(validate(polygon) == PolygonValidity::HoleOutsideOutline);
+}
+
 TEST_CASE("A self-intersecting outline is rejected", "[geometry][polygon]") {
   const Contour bowtie{
       .spans = {

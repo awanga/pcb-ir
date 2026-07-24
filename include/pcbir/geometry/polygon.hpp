@@ -22,12 +22,15 @@ enum class PolygonValidity : uint8_t {
   OutlineWrongOrientation,
   InvalidHole,
   HoleWrongOrientation,
+  HoleOutsideOutline,
 };
 
-// Validates the outline and every hole (Contour::validate) and enforces
-// the winding convention: the outline is CounterClockwise, every hole is
-// Clockwise. Does not check that holes actually lie within the outline
-// (deferred to the broader geometry validation pass later in this phase).
+// Validates the outline and every hole (Contour::validate), enforces the
+// winding convention (outline CounterClockwise, every hole Clockwise),
+// and that each hole is properly contained within the outline: no
+// hole-outline chord crossing, and the hole's first vertex strictly
+// inside the outline (chords_properly_cross / contour_strictly_contains,
+// docs/format-spec.md).
 [[nodiscard]] PolygonValidity validate(const Polygon& polygon);
 
 } // namespace pcbir::geometry
