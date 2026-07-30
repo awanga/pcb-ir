@@ -31,3 +31,33 @@ opening, silkscreen graphic.)
 ## Layer 5 — Process/Optimization Metadata
 
 (To be expanded: provenance, congestion map, cost field.)
+
+## Layer 6 — Intent & Planning
+
+Engineering intent and process, distinct from board state (Layers 1–5) — see
+`docs/architecture.md` → "The Intent & Planning layer". Not a per-vendor concept to cross-map
+the way Layers 1–5 are (no mainstream EDA board format has an equivalent first-class layer);
+terms here are PCB-IR's own.
+
+- **Intent** — a semantic request to change the board (e.g. "route this net"), the input to
+  the intent compilation pipeline.
+- **Transformation plan** — a concrete, deterministic, not-yet-applied sequence of edits
+  produced by planning an intent.
+- **Transaction** — a previewable, committable unit produced from a transformation plan;
+  carries proposed changes, diagnostics, estimated impact, affected regions, rollback
+  information, and provenance.
+- **Provenance** — the attributable record (human, agent, transaction) of who/what made a
+  decision and why.
+- **Semantic identifier** — a namespaced, human-readable, stable name (`net.USB_D+`,
+  `component.U15`) resolvable to an `EntityId`, distinct from the internal `EntityId`/
+  `Handle` pair (`docs/architecture.md` → "Stable semantic identifiers").
+
+## MCP and AI-interface terms
+
+- **MCP (Model Context Protocol)** — the standardized protocol PCB-IR's AI interface is built
+  on; see `docs/mcp/`.
+- **Service** — a logical grouping of semantic MCP operations (Design, Query, Routing,
+  Analysis, Optimization, Visualization, Dataset).
+- **Capability negotiation** — a client/reader querying what a server/file/importer supports
+  before depending on it; one shared model across files, MCP, and import/export
+  (`docs/architecture.md` → "Capability negotiation").

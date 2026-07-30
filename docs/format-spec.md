@@ -126,4 +126,13 @@ entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`P
 
 - Namespaced; see `docs/extensions-governance.md`.
 
+## Intent & Planning schema (reserved, Post-MVP)
+
+`schemas/intent.fbs` (Layer 6, `TASKS.md` Phase 14) is reserved, not built, in v0.1, the same
+way the archive/container layer is (`docs/architecture.md`). It will carry engineering
+intent, transformation-plan/transaction history, and stable semantic-identifier alias tables
+— round-tripping through the same snapshot/workspace mechanism as every other layer, so no
+breaking schema change is needed to add it later. See `docs/architecture.md` → "The Intent &
+Planning layer" and "Stable semantic identifiers".
+
 (To be expanded with per-table layouts and golden byte examples.)

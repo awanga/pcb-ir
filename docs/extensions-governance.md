@@ -16,7 +16,10 @@ the Khronos pattern (vendor / EXT / registered tiers) so the ecosystem stays int
 - Extensions are typed and versioned.
 - Readers must safely ignore unknown extensions (forward compatibility).
 - Capability negotiation: a file declares the extensions it uses; a reader declares the
-  extensions it supports; unsupported-but-required extensions are a documented error.
+  extensions it supports; unsupported-but-required extensions are a documented error. This is
+  the file-format instance of a single shared capability-negotiation model
+  (`docs/architecture.md` → "Capability negotiation") also used by the MCP subsystem
+  (`docs/mcp/`) and import/export pipelines (`docs/conformance.md`).
 
 ## Registry
 

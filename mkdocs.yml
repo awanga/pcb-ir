@@ -22,8 +22,11 @@ nav:
   - Architecture: architecture.md
   - File format: format-spec.md
   - C ABI: c-abi.md
+  - MCP subsystem: mcp/index.md
   - Conformance: conformance.md
   - Extensions & governance: extensions-governance.md
+  - RFCs: rfcs/README.md
+  - RFC template: rfcs/0000-template.md
   - Glossary: glossary.md
   - C++ style guide: cpp-style.md
 
