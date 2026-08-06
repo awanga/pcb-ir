@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: Apache-2.0
+// Connectivity-layer schema (docs/architecture.md; TASKS.md Phase 3). Composed
+// into the root snapshot schema in a later phase (docs/format-spec.md);
+// ConnectivitySnapshot here is a standalone root so the connectivity layer
+// can be round-tripped and tested in isolation first, mirroring
+// schemas/geometry.fbs.
+namespace pcbir.connectivity.fbs;
+
+// An electrical net. Deliberately geometry-free: nothing here references a
+// shape, layer, or coordinate.
+table Net {
+  name:string;
+}
+
+// The connectivity layer's node: a connection point tying a geometry-layer
+// pad/via (referenced by its stable EntityId; geometry itself is never
+// embedded) to at most one net. `net` is 0 (null EntityId) for an
+// unconnected pin.
+table Pin {
+  pad:uint64;
+  net:uint64;
+}
+
+// Two nets driven as a differential signal. Which field a net occupies
+// *is* its polarity -- there is no separate polarity tag to keep in sync.
+table DifferentialPair {
+  positive_net:uint64;
+  negative_net:uint64;
+}
+
+// A named, ordered group of nets (e.g. a parallel data bus D0-D7). Member
+// order carries meaning (bit position) and is preserved on round-trip.
+table Bus {
+  name:string;
+  members:[uint64];
+}
+
+// Every connectivity entity also carries the stable EntityId
+// (docs/architecture.md) it was assigned in the workspace it was built
+// from, mirroring schemas/geometry.fbs.
+table NetEntry { id:uint64; value:Net; }
+table PinEntry { id:uint64; value:Pin; }
+table DifferentialPairEntry { id:uint64; value:DifferentialPair; }
+table BusEntry { id:uint64; value:Bus; }
+
+table ConnectivitySnapshot {
+  nets:[NetEntry];
+  pins:[PinEntry];
+  diff_pairs:[DifferentialPairEntry];
+  buses:[BusEntry];
+}
+
+root_type ConnectivitySnapshot;

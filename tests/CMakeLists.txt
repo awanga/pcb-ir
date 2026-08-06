@@ -16,6 +16,9 @@ add_executable(pcbir_tests
   geometry/boolean_test.cpp
   geometry/spatial_index_test.cpp
   geometry/diagnostics_test.cpp
+  connectivity/entities_test.cpp
+  connectivity/serialize_test.cpp
+  connectivity/diagnostics_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 

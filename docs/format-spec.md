@@ -122,6 +122,52 @@ entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`P
   PCB-IR's outline-plus-holes `Polygon` shape (a flat path list alone cannot distinguish a
   hole from a disjoint second outline).
 
+## Connectivity encoding
+
+- `schemas/connectivity.fbs` (`pcbir::connectivity`, TASKS.md Phase 3) is a standalone root
+  schema, the same way `schemas/geometry.fbs` is -- composed into the root snapshot schema in
+  a later phase (Phase 5). It is deliberately geometry-free: no field references a shape,
+  layer, or coordinate, so a net's name and membership are resolvable without loading the
+  geometry layer at all.
+- `Net` carries only a `name`.
+- `Pin` is the connectivity layer's node: a `pad` field (the geometry-layer pad/via's stable
+  `EntityId`, never the geometry itself) and a `net` field (the owning `Net`'s `EntityId`, or
+  0/null for an unconnected pin). A pad is claimed by at most one `Pin` -- see Connectivity
+  diagnostic codes below.
+- `DifferentialPair` carries `positive_net`/`negative_net`, each a `Net` `EntityId`. Polarity
+  is which field a net occupies, not a separate tag, so it cannot drift out of sync on
+  round-trip.
+- `Bus` carries a `name` and an ordered `members` list of `Net` `EntityId`s. Member order is
+  significant (e.g. bit position in a parallel bus) and is preserved on round-trip -- FlatBuffers
+  vectors are already order-preserving, so no extra encoding is needed.
+- Every entry table (`NetEntry`, `PinEntry`, `DifferentialPairEntry`, `BusEntry`) carries the
+  stable `EntityId` its entity was assigned in the workspace it was built from, mirroring
+  `schemas/geometry.fbs`'s `PadEntry`/`ViaEntry`/etc.
+
+## Connectivity diagnostic codes
+
+`pcbir::connectivity::DiagnosticCode` (`include/pcbir/connectivity/diagnostics.hpp`) is its
+own stable code space, scoped to the connectivity layer the same way
+`pcbir::geometry::DiagnosticCode` is scoped to geometry -- unifying per-layer diagnostic
+spaces into one is Post-MVP pass-manager work (TASKS.md Phase 10), not a Phase 3 requirement.
+`pcbir::connectivity::validate(const ConnectivitySnapshot&)` combines each entity's own
+`validate()` with the cross-entity checks (dangling net references, duplicate pad assignment,
+dangling diff-pair/bus members) that need the whole net graph to decide.
+
+| Code | Value | Meaning |
+|---|---|---|
+| `Valid` | 0 | No problem found. |
+| `EmptyNetName` | 1 | A `Net`'s `name` is empty. |
+| `InvalidPin` | 2 | A `Pin`'s `pad` is a null `EntityId`. |
+| `UnconnectedPin` | 3 | A `Pin`'s `net` is a null `EntityId` (an orphan pin). |
+| `DanglingPinNetReference` | 4 | A `Pin`'s `net` does not resolve to any `Net` in the snapshot. |
+| `DuplicatePadAssignment` | 5 | The same pad is referenced by more than one `Pin` -- a short. |
+| `DegenerateDiffPair` | 6 | A `DifferentialPair` member net is null, or both members are the same net. |
+| `DanglingDiffPairMember` | 7 | A `DifferentialPair` member net does not resolve to any `Net`. |
+| `EmptyBus` | 8 | A `Bus` has no member nets. |
+| `DuplicateBusMember` | 9 | A `Bus` lists the same net more than once. |
+| `DanglingBusMember` | 10 | A `Bus` member net does not resolve to any `Net`. |
+
 ## Extensions
 
 - Namespaced; see `docs/extensions-governance.md`.

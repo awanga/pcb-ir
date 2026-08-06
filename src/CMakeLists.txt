@@ -16,6 +16,18 @@ build_flatbuffers(
   ""
 )
 
+# Generates ${CMAKE_SOURCE_DIR}/generated/connectivity_generated.h from
+# schemas/connectivity.fbs (TASKS.md Phase 3).
+build_flatbuffers(
+  "${CMAKE_SOURCE_DIR}/schemas/connectivity.fbs"
+  ""
+  pcbir_connectivity_schema
+  ""
+  "${CMAKE_SOURCE_DIR}/generated"
+  ""
+  ""
+)
+
 add_library(pcbir_core
   pcbir/version.cpp
   pcbir/geometry/bezier.cpp
@@ -26,9 +38,11 @@ add_library(pcbir_core
   pcbir/geometry/boolean.cpp
   pcbir/geometry/spatial_index.cpp
   pcbir/geometry/diagnostics.cpp
+  pcbir/connectivity/serialize.cpp
+  pcbir/connectivity/diagnostics.cpp
 )
 
-add_dependencies(pcbir_core pcbir_geometry_schema)
+add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema)
 
 target_include_directories(pcbir_core
   PUBLIC
