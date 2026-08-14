@@ -28,6 +28,18 @@ build_flatbuffers(
   ""
 )
 
+# Generates ${CMAKE_SOURCE_DIR}/generated/stackup_generated.h from
+# schemas/stackup.fbs (TASKS.md Phase 4).
+build_flatbuffers(
+  "${CMAKE_SOURCE_DIR}/schemas/stackup.fbs"
+  ""
+  pcbir_stackup_schema
+  ""
+  "${CMAKE_SOURCE_DIR}/generated"
+  ""
+  ""
+)
+
 add_library(pcbir_core
   pcbir/version.cpp
   pcbir/geometry/bezier.cpp
@@ -40,9 +52,11 @@ add_library(pcbir_core
   pcbir/geometry/diagnostics.cpp
   pcbir/connectivity/serialize.cpp
   pcbir/connectivity/diagnostics.cpp
+  pcbir/stackup/serialize.cpp
+  pcbir/stackup/diagnostics.cpp
 )
 
-add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema)
+add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema)
 
 target_include_directories(pcbir_core
   PUBLIC

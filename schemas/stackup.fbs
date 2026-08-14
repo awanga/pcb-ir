@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: Apache-2.0
+// Stackup-layer schema (docs/architecture.md; TASKS.md Phase 4). Composed
+// into the root snapshot schema in a later phase (docs/format-spec.md);
+// StackupSnapshot here is a standalone root so the stackup layer can be
+// round-tripped and tested in isolation first, mirroring
+// schemas/geometry.fbs and schemas/connectivity.fbs.
+namespace pcbir.stackup.fbs;
+
+// A dielectric material a Layer can be made of (e.g. FR4, polyimide,
+// prepreg). dielectric_constant/loss_tangent are dimensionless physical
+// constants; the wire format never carries floating point
+// (docs/format-spec.md), so both are fixed-point, scaled by 1e6 (see
+// include/pcbir/stackup/material.hpp).
+table Material {
+  name:string;
+  dielectric_constant_e6:int64;
+  loss_tangent_e6:int64;
+}
+
+enum LayerKind:ubyte { Copper, Dielectric }
+
+// One physical layer in the board's cross-section. `material` is the
+// owning Material's EntityId, meaningful only for a Dielectric layer (0 /
+// null for Copper).
+table Layer {
+  name:string;
+  kind:LayerKind;
+  thickness_nm:int64;
+  roughness_nm:int64;
+  material:uint64;
+}
+
+// The board's physical stackup: an ordered, top-to-bottom list of Layer
+// references. Order is significant (physical build-up order) and is
+// preserved on round-trip.
+table LayerStack {
+  name:string;
+  layers:[uint64];
+}
+
+// Controlled-impedance data for a net-class/trace-class, identified by
+// name since no NetClass/TraceClass entity exists yet. Carried as data
+// (MVP); full computation is Post-MVP (constraint system).
+table ImpedanceProfile {
+  class_name:string;
+  target_ohm_e6:int64;
+  actual_ohm_e6:int64;
+}
+
+// Every stackup entity also carries the stable EntityId
+// (docs/architecture.md) it was assigned in the workspace it was built
+// from, mirroring schemas/geometry.fbs and schemas/connectivity.fbs.
+table MaterialEntry { id:uint64; value:Material; }
+table LayerEntry { id:uint64; value:Layer; }
+table LayerStackEntry { id:uint64; value:LayerStack; }
+table ImpedanceProfileEntry { id:uint64; value:ImpedanceProfile; }
+
+table StackupSnapshot {
+  materials:[MaterialEntry];
+  layers:[LayerEntry];
+  layer_stacks:[LayerStackEntry];
+  impedance_profiles:[ImpedanceProfileEntry];
+}
+
+root_type StackupSnapshot;

@@ -168,6 +168,76 @@ dangling diff-pair/bus members) that need the whole net graph to decide.
 | `DuplicateBusMember` | 9 | A `Bus` lists the same net more than once. |
 | `DanglingBusMember` | 10 | A `Bus` member net does not resolve to any `Net`. |
 
+## Stackup encoding
+
+- `schemas/stackup.fbs` (`pcbir::stackup`, TASKS.md Phase 4) is a standalone root schema, the
+  same way `schemas/geometry.fbs` and `schemas/connectivity.fbs` are -- composed into the root
+  snapshot schema in a later phase (Phase 5).
+- The wire format never carries floating point (see Encoding above); `Material`'s
+  `dielectric_constant_e6`/`loss_tangent_e6` and `ImpedanceProfile`'s
+  `target_ohm_e6`/`actual_ohm_e6` are dimensionless/electrical fixed-point fields, each the
+  true value multiplied by 1e6 and stored as an `int64`. A dielectric constant (Dk) of 4.3 is
+  stored as `4300000`; an impedance target of 90.0 Ω is stored as `90000000`. `Layer`'s
+  `thickness_nm`/`roughness_nm` reuse the project-wide nanometer length convention instead, the
+  same as every other length field in the format.
+- `Material` carries a `name` plus the two fixed-point constants above. It is referenced by a
+  `Layer`, never embedded, so the same material can back more than one layer.
+- `Layer` is one physical layer in the board's cross-section: a `kind` (`Copper` or
+  `Dielectric`), `thickness_nm`, `roughness_nm` (copper foil profile; unused for `Dielectric`),
+  and a `material` reference (the owning `Material`'s `EntityId`; meaningful, and required, only
+  for a `Dielectric` layer).
+- `LayerStack` is the board's physical stackup: a `name` and an ordered, top-to-bottom `layers`
+  list of `Layer` `EntityId`s. Order is significant (physical build-up order, and which copper
+  layers are adjacent determines valid blind/buried via spans) and is preserved on round-trip,
+  the same way `schemas/connectivity.fbs`'s `Bus.members` preserves its ordering.
+- `ImpedanceProfile` carries controlled-impedance data -- a `class_name` (identifying a
+  net-class/trace-class by name, since no such entity exists yet), a `target_ohm_e6`, and an
+  `actual_ohm_e6` that may be fab-declared or solver-computed; MVP does not distinguish the
+  source and carries it purely as data. Full impedance computation is Post-MVP (constraint
+  system).
+- A geometry `Via` (`include/pcbir/geometry/via.hpp`) already carries `start_layer`/
+  `end_layer` fields referencing a stackup `Layer` by stable `EntityId`, never by geometry --
+  added ahead of this phase so a through-hole via is simply the degenerate case where the span
+  covers every layer, and a blind/buried/microvia is the same struct with a narrower span. No
+  new via type was needed for this phase; see Stackup diagnostic codes below for how a stackup
+  edit that removes a referenced layer is detected.
+- Every entry table (`MaterialEntry`, `LayerEntry`, `LayerStackEntry`, `ImpedanceProfileEntry`)
+  carries the stable `EntityId` its entity was assigned in the workspace it was built from,
+  mirroring `schemas/geometry.fbs`/`schemas/connectivity.fbs`.
+
+## Stackup diagnostic codes
+
+`pcbir::stackup::DiagnosticCode` (`include/pcbir/stackup/diagnostics.hpp`) is its own stable
+code space, scoped to the stackup layer the same way geometry's and connectivity's are scoped
+to theirs -- unifying per-layer diagnostic spaces into one is Post-MVP pass-manager work
+(TASKS.md Phase 10), not a Phase 4 requirement. `pcbir::stackup::validate(const
+StackupSnapshot&)` combines each entity's own `validate()` with the cross-entity checks
+(dangling layer/material references) that need the whole stackup to decide.
+
+`pcbir::stackup::validate_via_layer_references(const GeometrySnapshot&, const
+StackupSnapshot&)` is a separate, opt-in check: the one stackup diagnostic that needs a
+geometry snapshot as well as a stackup one, so it is not folded into `validate()` above. It
+walks every `Via` in the geometry snapshot and flags one whose `start_layer`/`end_layer` no
+longer resolves to any `Layer` in the stackup snapshot -- the "a stackup edit that removes a
+referenced layer is flagged, not silently corrupted" guarantee.
+
+| Code | Value | Meaning |
+|---|---|---|
+| `Valid` | 0 | No problem found. |
+| `EmptyMaterialName` | 1 | A `Material`'s `name` is empty. |
+| `NonPositiveDielectricConstant` | 2 | A `Material`'s `dielectric_constant_e6` is not positive. |
+| `NegativeLossTangent` | 3 | A `Material`'s `loss_tangent_e6` is negative. |
+| `NonPositiveLayerThickness` | 4 | A `Layer`'s `thickness_nm` is not positive. |
+| `NegativeLayerRoughness` | 5 | A `Layer`'s `roughness_nm` is negative. |
+| `MissingDielectricMaterial` | 6 | A `Dielectric` `Layer`'s `material` is a null `EntityId`. |
+| `EmptyStackup` | 7 | A `LayerStack` has no member layers. |
+| `DuplicateStackupLayer` | 8 | A `LayerStack` lists the same layer more than once. |
+| `EmptyImpedanceClassName` | 9 | An `ImpedanceProfile`'s `class_name` is empty. |
+| `NonPositiveImpedanceTarget` | 10 | An `ImpedanceProfile`'s `target_ohm_e6` is not positive. |
+| `DanglingStackupLayerReference` | 11 | A `LayerStack` member does not resolve to any `Layer` in the snapshot. |
+| `DanglingLayerMaterialReference` | 12 | A `Layer`'s `material` does not resolve to any `Material` in the snapshot. |
+| `DanglingViaLayerReference` | 13 | A geometry `Via`'s `start_layer`/`end_layer` does not resolve to any `Layer` in the stackup snapshot. |
+
 ## Extensions
 
 - Namespaced; see `docs/extensions-governance.md`.

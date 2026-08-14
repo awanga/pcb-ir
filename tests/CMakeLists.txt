@@ -19,6 +19,9 @@ add_executable(pcbir_tests
   connectivity/entities_test.cpp
   connectivity/serialize_test.cpp
   connectivity/diagnostics_test.cpp
+  stackup/entities_test.cpp
+  stackup/serialize_test.cpp
+  stackup/diagnostics_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 
