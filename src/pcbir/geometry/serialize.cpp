@@ -2,6 +2,7 @@
 #include "pcbir/geometry/serialize.hpp"
 
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/format_error.hpp"
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
@@ -101,10 +102,16 @@ Span read_span(fbs::Span type, const void* geometry) {
   if (type == fbs::Span_Arc) {
     return Span{read_arc(static_cast<const fbs::Arc*>(geometry))};
   }
-  // Span_NONE cannot occur for a spans_type entry the writer above ever
-  // produces; treat it the same as Segment rather than reading past a
-  // null pointer.
-  return Span{read_segment(static_cast<const fbs::Segment*>(geometry))};
+  if (type == fbs::Span_Segment) {
+    return Span{read_segment(static_cast<const fbs::Segment*>(geometry))};
+  }
+  // Span_NONE never occurs for a spans_type entry the writer above
+  // produces; FlatBuffers' union verification does not reject NONE paired
+  // with a present value offset (docs/format-spec.md -- Serialization
+  // fuzz target), so a NONE type here means the buffer is malformed --
+  // reject it rather than reinterpreting an unrelated payload as a
+  // Segment.
+  throw FormatError("corrupt or malformed geometry snapshot buffer: span has no type");
 }
 
 // -- WidthSpan / Path -----------------------------------------------------
@@ -364,6 +371,12 @@ std::vector<uint8_t> serialize(const GeometrySnapshot& snapshot) {
 }
 
 GeometryWorkspace deserialize_geometry(std::span<const uint8_t> buffer) {
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  flatbuffers::Verifier verifier(buffer.data(), buffer.size());
+  if (!fbs::VerifyGeometrySnapshotBuffer(verifier)) {
+    throw FormatError("corrupt or malformed geometry snapshot buffer");
+  }
+
   const fbs::GeometrySnapshot* snapshot = fbs::GetGeometrySnapshot(buffer.data());
   GeometryWorkspace workspace;
 

@@ -5,6 +5,9 @@ include(Catch)
 add_executable(pcbir_tests
   smoke_test.cpp
   core_test.cpp
+  board_serialize_test.cpp
+  board_file_view_test.cpp
+  format_error_test.cpp
   geometry/point_test.cpp
   geometry/segment_arc_test.cpp
   geometry/bezier_test.cpp

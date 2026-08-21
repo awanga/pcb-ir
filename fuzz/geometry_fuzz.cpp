@@ -19,11 +19,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     pcbir::geometry::GeometryWorkspace workspace = pcbir::geometry::deserialize_geometry(buffer);
     // Exercise commit() too, not just deserialization itself.
     (void)workspace.commit();
-    // deserialize_geometry does not yet verify the buffer against schema
-    // corruption (see its own doc comment in serialize.hpp) -- a thrown
-    // exception here is an acceptable outcome for this target. Making
-    // corrupt input fail *without* an exception/crash at all is Phase 5's
-    // "Serialization fuzz target" task (TASKS.md), not this one's.
+    // deserialize_geometry verifies the buffer against schema corruption
+    // before reading a field; a malformed buffer is expected to throw
+    // pcbir::FormatError here, a clean, documented outcome rather than a
+    // crash or out-of-bounds read.
     // NOLINTNEXTLINE(bugprone-empty-catch)
   } catch (...) {
   }

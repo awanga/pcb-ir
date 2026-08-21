@@ -38,9 +38,11 @@ using GeometryWorkspace =
 // every entity's original EntityId preserved (via
 // Workspace::insert_with_id). Returns a Workspace rather than a Snapshot
 // because the only way to obtain a Snapshot is Workspace::commit()
-// (docs/architecture.md); call commit() on the result to get one. Does not
-// verify the buffer against schema corruption -- that hardening belongs to
-// the geometry fuzz target (TASKS.md), a separate task from this one.
+// (docs/architecture.md); call commit() on the result to get one. The
+// buffer is verified against schema corruption before any field is read
+// (docs/format-spec.md -- Serialization fuzz target); a structurally
+// invalid buffer throws pcbir::FormatError rather than crashing or
+// reading out of bounds.
 [[nodiscard]] GeometryWorkspace deserialize_geometry(std::span<const uint8_t> buffer);
 
 } // namespace pcbir::geometry

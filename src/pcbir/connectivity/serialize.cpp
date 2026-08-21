@@ -6,6 +6,7 @@
 #include "pcbir/connectivity/net.hpp"
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/format_error.hpp"
 
 // The FlatBuffers runtime library's own convention (every flatc-generated
 // header includes exactly this), even though its symbols are physically
@@ -112,6 +113,12 @@ std::vector<uint8_t> serialize(const ConnectivitySnapshot& snapshot) {
 }
 
 ConnectivityWorkspace deserialize_connectivity(std::span<const uint8_t> buffer) {
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  flatbuffers::Verifier verifier(buffer.data(), buffer.size());
+  if (!fbs::VerifyConnectivitySnapshotBuffer(verifier)) {
+    throw FormatError("corrupt or malformed connectivity snapshot buffer");
+  }
+
   const fbs::ConnectivitySnapshot* snapshot = fbs::GetConnectivitySnapshot(buffer.data());
   ConnectivityWorkspace workspace;
 

@@ -37,3 +37,7 @@ endif()
 if(PCBIR_BUILD_FUZZ)
   add_subdirectory(fuzz)
 endif()
+
+if(PCBIR_BUILD_BENCH)
+  add_subdirectory(bench)
+endif()

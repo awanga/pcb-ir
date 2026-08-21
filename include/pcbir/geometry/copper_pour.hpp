@@ -9,7 +9,7 @@ namespace pcbir::geometry {
 
 // A filled copper region (a "zone"/"pour"): an outline with optional holes
 // (e.g. clearance around unrelated pads/vias) on one layer. Net membership
-// is a connectivity concern (Phase 3) and is not modeled here.
+// is a connectivity concern (pcbir::connectivity) and is not modeled here.
 struct CopperPour {
   Polygon outline;
   LayerRef layer;

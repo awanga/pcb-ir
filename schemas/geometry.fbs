@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Geometry-layer schema (docs/architecture.md; TASKS.md Phase 2). Composed
-// into the root snapshot schema in a later phase (docs/format-spec.md);
+// Geometry-layer schema (docs/architecture.md). Composed into the root
+// snapshot schema (schemas/snapshot.fbs; docs/format-spec.md);
 // GeometrySnapshot here is a standalone root so the geometry layer can be
 // round-tripped and tested in isolation first.
 namespace pcbir.geometry.fbs;
@@ -15,22 +15,30 @@ enum ArcDirection:ubyte { Clockwise, CounterClockwise }
 
 // Segment/Arc are `table` (not `struct`) because FlatBuffers unions can
 // only reference tables, and both participate in the Span union below.
+// Point fields below are `(required)`: read_point() (serialize.cpp)
+// dereferences them unconditionally, so an absent field must fail
+// verification rather than reach that dereference
+// (docs/format-spec.md -- Serialization fuzz target).
 table Segment {
-  start:Point;
-  finish:Point; // "end" is a reserved word in the schema language.
+  start:Point (required);
+  finish:Point (required); // "end" is a reserved word in the schema language.
 }
 
 table Arc {
-  start:Point;
-  finish:Point;
-  center:Point;
+  start:Point (required);
+  finish:Point (required);
+  center:Point (required);
   direction:ArcDirection;
 }
 
 union Span { Segment, Arc }
 
+// `geometry` is `(required)`: this only forces the union's value offset to
+// be present (a type of `NONE` is still possible on a malformed buffer;
+// read_span()/read_width_span() (serialize.cpp) explicitly reject that
+// case rather than reinterpreting an unrelated payload as a Segment).
 table WidthSpan {
-  geometry:Span;
+  geometry:Span (required);
   width_nm:int64;
 }
 
@@ -44,19 +52,20 @@ table Path {
   spans:[WidthSpan];
 }
 
+// `outline` is `(required)`: read_polygon() dereferences it unconditionally.
 table Polygon {
-  outline:Contour;
+  outline:Contour (required);
   holes:[Contour];
 }
 
 table Pad {
-  position:Point;
-  outline:Polygon;
+  position:Point (required);
+  outline:Polygon (required);
   layer:uint64;
 }
 
 table Via {
-  position:Point;
+  position:Point (required);
   drill_diameter_nm:int64;
   finished_hole_diameter_nm:int64;
   pad_diameter_nm:int64;
@@ -65,47 +74,50 @@ table Via {
 }
 
 table Track {
-  path:Path;
+  path:Path (required);
   layer:uint64;
 }
 
 table CopperPour {
-  outline:Polygon;
+  outline:Polygon (required);
   layer:uint64;
 }
 
 table Keepout {
-  outline:Polygon;
+  outline:Polygon (required);
   layer:uint64;
 }
 
 table DrillHit {
-  position:Point;
+  position:Point (required);
   diameter_nm:int64;
   plated:bool;
 }
 
 table MaskOpening {
-  outline:Polygon;
+  outline:Polygon (required);
   layer:uint64;
 }
 
 table SilkscreenGraphic {
-  path:Path;
+  path:Path (required);
   layer:uint64;
 }
 
 // Every board entity also carries the stable EntityId (docs/architecture.md)
 // it was assigned in the workspace it was built from, so a load -> edit ->
-// save round trip preserves identity, not just shape.
-table PadEntry { id:uint64; value:Pad; }
-table ViaEntry { id:uint64; value:Via; }
-table TrackEntry { id:uint64; value:Track; }
-table CopperPourEntry { id:uint64; value:CopperPour; }
-table KeepoutEntry { id:uint64; value:Keepout; }
-table DrillHitEntry { id:uint64; value:DrillHit; }
-table MaskOpeningEntry { id:uint64; value:MaskOpening; }
-table SilkscreenGraphicEntry { id:uint64; value:SilkscreenGraphic; }
+// save round trip preserves identity, not just shape. `value` is
+// `(required)` so a buffer missing it fails FlatBuffers verification
+// (docs/format-spec.md -- Serialization fuzz target) instead of reaching
+// deserialize_geometry's unconditional `entry->value()` dereference.
+table PadEntry { id:uint64; value:Pad (required); }
+table ViaEntry { id:uint64; value:Via (required); }
+table TrackEntry { id:uint64; value:Track (required); }
+table CopperPourEntry { id:uint64; value:CopperPour (required); }
+table KeepoutEntry { id:uint64; value:Keepout (required); }
+table DrillHitEntry { id:uint64; value:DrillHit (required); }
+table MaskOpeningEntry { id:uint64; value:MaskOpening (required); }
+table SilkscreenGraphicEntry { id:uint64; value:SilkscreenGraphic (required); }
 
 table GeometrySnapshot {
   pads:[PadEntry];

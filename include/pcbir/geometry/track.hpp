@@ -9,7 +9,7 @@ namespace pcbir::geometry {
 
 // A copper trace: an ordered polyline of segment/arc spans, each with its
 // own width, on one layer. Net membership is a connectivity concern
-// (Phase 3) and is not modeled here.
+// (pcbir::connectivity) and is not modeled here.
 struct Track {
   Path path;
   LayerRef layer;

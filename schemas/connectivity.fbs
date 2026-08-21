@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Connectivity-layer schema (docs/architecture.md; TASKS.md Phase 3). Composed
-// into the root snapshot schema in a later phase (docs/format-spec.md);
+// Connectivity-layer schema (docs/architecture.md). Composed into the root
+// snapshot schema (schemas/snapshot.fbs; docs/format-spec.md);
 // ConnectivitySnapshot here is a standalone root so the connectivity layer
 // can be round-tripped and tested in isolation first, mirroring
 // schemas/geometry.fbs.
@@ -37,11 +37,14 @@ table Bus {
 
 // Every connectivity entity also carries the stable EntityId
 // (docs/architecture.md) it was assigned in the workspace it was built
-// from, mirroring schemas/geometry.fbs.
-table NetEntry { id:uint64; value:Net; }
-table PinEntry { id:uint64; value:Pin; }
-table DifferentialPairEntry { id:uint64; value:DifferentialPair; }
-table BusEntry { id:uint64; value:Bus; }
+// from, mirroring schemas/geometry.fbs. `value` is `(required)` so a
+// buffer missing it fails FlatBuffers verification (docs/format-spec.md --
+// Serialization fuzz target) instead of reaching
+// deserialize_connectivity's unconditional `entry->value()` dereference.
+table NetEntry { id:uint64; value:Net (required); }
+table PinEntry { id:uint64; value:Pin (required); }
+table DifferentialPairEntry { id:uint64; value:DifferentialPair (required); }
+table BusEntry { id:uint64; value:Bus (required); }
 
 table ConnectivitySnapshot {
   nets:[NetEntry];

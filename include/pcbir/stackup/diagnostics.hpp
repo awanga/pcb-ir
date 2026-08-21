@@ -19,8 +19,8 @@ namespace pcbir::stackup {
 // pcbir::geometry::DiagnosticCode and pcbir::connectivity::DiagnosticCode:
 // once shipped, a code's numeric value never changes (new codes are only
 // appended). Its own code space, scoped to stackup -- unifying per-layer
-// diagnostic spaces into one is Post-MVP pass-manager work (TASKS.md Phase
-// 10), not a Phase 4 requirement.
+// diagnostic spaces into one is Post-MVP pass-manager work, not something
+// this layer needs on its own.
 enum class DiagnosticCode : uint8_t {
   Valid = 0,
   EmptyMaterialName = 1,

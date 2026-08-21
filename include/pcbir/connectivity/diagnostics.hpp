@@ -18,8 +18,8 @@ namespace pcbir::connectivity {
 // pcbir::geometry::DiagnosticCode: once shipped, a code's numeric value
 // never changes (new codes are only appended). This is its own code space,
 // scoped to connectivity rather than shared with geometry's -- unifying
-// per-layer diagnostic spaces into one is Post-MVP pass-manager work
-// (TASKS.md Phase 10), not a Phase 3 requirement.
+// per-layer diagnostic spaces into one is Post-MVP pass-manager work, not
+// something this layer needs on its own.
 enum class DiagnosticCode : uint8_t {
   Valid = 0,
   EmptyNetName = 1,

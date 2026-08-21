@@ -24,8 +24,8 @@ enough that a PR diff alone can't carry the discussion.
   discussed before it was implemented?"
 
 Bug fixes, additive extensions (`docs/extensions-governance.md`), new importers/exporters
-that don't change core schema, and ordinary feature work within an already-agreed `TASKS.md`
-phase do **not** need an RFC.
+that don't change core schema, and ordinary, already-agreed roadmap work do **not** need an
+RFC.
 
 ## Process
 

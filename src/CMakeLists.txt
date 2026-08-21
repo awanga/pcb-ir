@@ -17,7 +17,7 @@ build_flatbuffers(
 )
 
 # Generates ${CMAKE_SOURCE_DIR}/generated/connectivity_generated.h from
-# schemas/connectivity.fbs (TASKS.md Phase 3).
+# schemas/connectivity.fbs.
 build_flatbuffers(
   "${CMAKE_SOURCE_DIR}/schemas/connectivity.fbs"
   ""
@@ -29,11 +29,26 @@ build_flatbuffers(
 )
 
 # Generates ${CMAKE_SOURCE_DIR}/generated/stackup_generated.h from
-# schemas/stackup.fbs (TASKS.md Phase 4).
+# schemas/stackup.fbs.
 build_flatbuffers(
   "${CMAKE_SOURCE_DIR}/schemas/stackup.fbs"
   ""
   pcbir_stackup_schema
+  ""
+  "${CMAKE_SOURCE_DIR}/generated"
+  ""
+  ""
+)
+
+# Generates ${CMAKE_SOURCE_DIR}/generated/snapshot_generated.h from
+# schemas/snapshot.fbs -- the root schema composing the
+# geometry/connectivity/stackup schemas above into one buffer. flatc
+# resolves its `include "geometry.fbs";` etc. relative to snapshot.fbs's
+# own directory by default, so no extra -I include path is needed.
+build_flatbuffers(
+  "${CMAKE_SOURCE_DIR}/schemas/snapshot.fbs"
+  ""
+  pcbir_snapshot_schema
   ""
   "${CMAKE_SOURCE_DIR}/generated"
   ""
@@ -54,9 +69,11 @@ add_library(pcbir_core
   pcbir/connectivity/diagnostics.cpp
   pcbir/stackup/serialize.cpp
   pcbir/stackup/diagnostics.cpp
+  pcbir/serialize.cpp
+  pcbir/board_file_view.cpp
 )
 
-add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema)
+add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema pcbir_snapshot_schema)
 
 target_include_directories(pcbir_core
   PUBLIC

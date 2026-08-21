@@ -32,7 +32,11 @@ using ConnectivityWorkspace = core::Workspace<Net, Pin, DifferentialPair, Bus>;
 // every entity's original EntityId preserved (via
 // Workspace::insert_with_id). Returns a Workspace rather than a Snapshot
 // because the only way to obtain a Snapshot is Workspace::commit()
-// (docs/architecture.md); call commit() on the result to get one.
+// (docs/architecture.md); call commit() on the result to get one. The
+// buffer is verified against schema corruption before any field is read
+// (docs/format-spec.md -- Serialization fuzz target); a structurally
+// invalid buffer throws pcbir::FormatError rather than crashing or
+// reading out of bounds.
 [[nodiscard]] ConnectivityWorkspace deserialize_connectivity(std::span<const uint8_t> buffer);
 
 } // namespace pcbir::connectivity

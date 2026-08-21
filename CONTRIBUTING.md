@@ -50,17 +50,18 @@ cmake -S . -B build/Fuzz/build/Release -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE=build/Fuzz/build/Release/generators/conan_toolchain.cmake \
     -DCMAKE_BUILD_TYPE=Release -DPCBIR_BUILD_FUZZ=ON -DBUILD_TESTING=OFF
 cmake --build build/Fuzz/build/Release
-./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus  # fuzz
-./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus/*  # replay the seed corpus once, no mutation
+./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus/geometry  # fuzz
+./build/Fuzz/build/Release/fuzz/pcbir_geometry_fuzz fuzz/corpus/geometry/*  # replay the seed corpus once, no mutation
 ```
 
-`fuzz/corpus/` holds the committed starting seeds (valid serialized geometry snapshots); this
-target is not currently wired into `ctest`/CI (that is a separate, later task, TASKS.md Phase
-9). `pcbir::geometry::deserialize_geometry` does not yet verify a buffer before reading it
-(see its own doc comment), so fuzzing past the seed corpus is expected to find a crash on
-malformed input quickly -- that is this target doing its job, not a regression in it;
-hardening the deserializer itself against corrupt input is a separate, later task (TASKS.md
-Phase 5).
+There are four targets -- `pcbir_geometry_fuzz`, `pcbir_connectivity_fuzz`, `pcbir_stackup_fuzz`,
+`pcbir_board_fuzz` -- one per deserializer, each with its own seed subdirectory
+(`fuzz/corpus/geometry/`, `fuzz/corpus/connectivity/`, `fuzz/corpus/stackup/`,
+`fuzz/corpus/board/`) so one target's seeds never get fed to another target's differently-shaped
+buffers. Every `deserialize_*()`/`deserialize_board()` runs FlatBuffers structural verification
+before reading a field and throws `pcbir::FormatError` on a corrupt buffer, so a malformed or
+fuzzer-mutated buffer is expected to be a clean, caught exception, not a crash -- these targets
+are not currently wired into `ctest`/CI.
 
 `schemas/*.fbs` are compiled to `generated/*_generated.h` automatically as part of the build
 (via `flatc`, see `src/CMakeLists.txt`); `generated/` is gitignored build output, never edited

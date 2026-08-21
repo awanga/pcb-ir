@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Stackup-layer schema (docs/architecture.md; TASKS.md Phase 4). Composed
-// into the root snapshot schema in a later phase (docs/format-spec.md);
+// Stackup-layer schema (docs/architecture.md). Composed into the root
+// snapshot schema (schemas/snapshot.fbs; docs/format-spec.md);
 // StackupSnapshot here is a standalone root so the stackup layer can be
 // round-tripped and tested in isolation first, mirroring
 // schemas/geometry.fbs and schemas/connectivity.fbs.
@@ -50,10 +50,14 @@ table ImpedanceProfile {
 // Every stackup entity also carries the stable EntityId
 // (docs/architecture.md) it was assigned in the workspace it was built
 // from, mirroring schemas/geometry.fbs and schemas/connectivity.fbs.
-table MaterialEntry { id:uint64; value:Material; }
-table LayerEntry { id:uint64; value:Layer; }
-table LayerStackEntry { id:uint64; value:LayerStack; }
-table ImpedanceProfileEntry { id:uint64; value:ImpedanceProfile; }
+// `value` is `(required)` so a buffer missing it fails FlatBuffers
+// verification (docs/format-spec.md -- Serialization fuzz target) instead
+// of reaching deserialize_stackup's unconditional `entry->value()`
+// dereference.
+table MaterialEntry { id:uint64; value:Material (required); }
+table LayerEntry { id:uint64; value:Layer (required); }
+table LayerStackEntry { id:uint64; value:LayerStack (required); }
+table ImpedanceProfileEntry { id:uint64; value:ImpedanceProfile (required); }
 
 table StackupSnapshot {
   materials:[MaterialEntry];

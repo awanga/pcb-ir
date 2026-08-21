@@ -1,10 +1,10 @@
 # PCB-IR MCP Subsystem
 
 > Status: stub — architectural contract fixed now (this document + `docs/architecture.md` →
-> "The MCP subsystem"); per-service operation schemas are filled in as `TASKS.md` Phases
-> 14–19 land. This document is normative for *shape* (services, philosophy, capability
-> model) ahead of full implementation, the same way `docs/format-spec.md` fixed the wire
-> format's shape before every table had a golden byte example.
+> "The MCP subsystem"); per-service operation schemas are filled in as that Post-MVP work
+> lands. This document is normative for *shape* (services, philosophy, capability model)
+> ahead of full implementation, the same way `docs/format-spec.md` fixed the wire format's
+> shape before every table had a golden byte example.
 
 MCP (Model Context Protocol) is PCB-IR's standardized, public API for AI systems — the layer
 through which agents (general-purpose assistants, coding agents, and specialized EDA
@@ -150,6 +150,6 @@ handle. Renaming an entity preserves the old identifier as a resolvable alias.
 
 ## Vendor neutrality
 
-The reference server (`apps/mcp-server`, `TASKS.md` Phase 18) implements the MCP
-specification only — no protocol extensions specific to any one AI platform. ChatGPT, Claude,
-Gemini, Cursor, GitHub Copilot, and any other MCP-capable client get the same interface.
+The reference server (`apps/mcp-server`) implements the MCP specification only — no protocol
+extensions specific to any one AI platform. ChatGPT, Claude, Gemini, Cursor, GitHub Copilot,
+and any other MCP-capable client get the same interface.

@@ -8,8 +8,8 @@
 namespace pcbir::stackup {
 
 // Controlled-impedance data for a net-class or trace-class, identified
-// here by name since no NetClass/TraceClass entity exists yet (TASKS.md
-// Phase 4). `target_ohm_e6` is the required/specified impedance;
+// here by name since no NetClass/TraceClass entity exists yet.
+// `target_ohm_e6` is the required/specified impedance;
 // `actual_ohm_e6` is whatever value is known for it -- fab-declared or
 // solver-computed, MVP does not distinguish the source and carries it
 // purely as data. Both are ohms scaled by 1e6 (the wire format never

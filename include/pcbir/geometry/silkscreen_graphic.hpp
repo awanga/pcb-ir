@@ -9,8 +9,8 @@ namespace pcbir::geometry {
 
 // A silkscreen (legend) stroke: geometrically the same shape as a Track
 // (a per-span-width polyline), but on a silkscreen layer with no
-// electrical meaning. Text is out of scope for v0.1 (TASKS.md); a
-// silkscreen font-text entity would layer on top of this, not replace it.
+// electrical meaning. Text is out of scope for v0.1; a silkscreen
+// font-text entity would layer on top of this, not replace it.
 struct SilkscreenGraphic {
   Path path;
   LayerRef layer;

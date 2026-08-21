@@ -95,9 +95,8 @@ PCB-IR aims to make:
 Early architecture and schema development. The first release is an interchange-first MVP
 (core model, geometry, connectivity, stackup, serialization, and a KiCad round-trip) — the
 first slice toward the full vision above, not a reduced scope. The MCP subsystem, intent
-layer, and ML infrastructure described above are architected now and sequenced into
-Post-MVP phases in `TASKS.md`, so v0.1's schema never needs a breaking change to accommodate
-them later.
+layer, and ML infrastructure described above are architected now and sequenced as Post-MVP
+work, so v0.1's schema never needs a breaking change to accommodate them later.
 
 ## Documentation
 

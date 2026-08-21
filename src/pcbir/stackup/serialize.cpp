@@ -2,6 +2,7 @@
 #include "pcbir/stackup/serialize.hpp"
 
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/format_error.hpp"
 #include "pcbir/stackup/impedance_profile.hpp"
 #include "pcbir/stackup/layer.hpp"
 #include "pcbir/stackup/layer_stack.hpp"
@@ -142,6 +143,12 @@ std::vector<uint8_t> serialize(const StackupSnapshot& snapshot) {
 }
 
 StackupWorkspace deserialize_stackup(std::span<const uint8_t> buffer) {
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  flatbuffers::Verifier verifier(buffer.data(), buffer.size());
+  if (!fbs::VerifyStackupSnapshotBuffer(verifier)) {
+    throw FormatError("corrupt or malformed stackup snapshot buffer");
+  }
+
   const fbs::StackupSnapshot* snapshot = fbs::GetStackupSnapshot(buffer.data());
   StackupWorkspace workspace;
 

@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0
+// Root snapshot schema (docs/architecture.md) composing the geometry,
+// connectivity, and stackup layers -- each already its own
+// independently serializable, round-trippable root schema
+// (schemas/geometry.fbs, schemas/connectivity.fbs, schemas/stackup.fbs) --
+// into one file-level buffer, plus the cross-cutting concerns every layer
+// shares: wire-format version, namespaced typed extensions, and opaque
+// passthrough blobs (docs/extensions-governance.md).
+include "geometry.fbs";
+include "connectivity.fbs";
+include "stackup.fbs";
+
+namespace pcbir.fbs;
+
+// The (major, minor) wire-format version (docs/format-spec.md --
+// Versioning policy). A reader rejects an unknown major and tolerates an
+// unknown minor (FlatBuffers' own field-addition compatibility already
+// makes "tolerate" the default behavior -- an unrecognized minor simply
+// means some additive fields go unused).
+struct FormatVersion {
+  major:uint32;
+  minor:uint32;
+}
+
+// Which layer an ExtensionEntry/PassthroughBlobEntry's entity_id resolves
+// against. Each layer's Workspace allocates its own EntityId space
+// independently (docs/architecture.md), so a bare id is ambiguous across
+// layers -- (domain, entity_id) together are not. Append-only, the same
+// convention as every DiagnosticCode enum (docs/format-spec.md).
+enum EntityDomain:ubyte { Geometry, Connectivity, Stackup }
+
+// A namespaced, typed, versioned piece of data attached to one entity,
+// without requiring a breaking schema change to add
+// (docs/extensions-governance.md). `ext_namespace` is one of VENDOR_*,
+// EXT_*, or a registered PCBIR_* name; `name` identifies the extension
+// within that namespace. A reader that doesn't recognize
+// (ext_namespace, name) safely ignores this entry's `payload` -- and still
+// round-trips the entry unchanged, since ExtensionEntry itself is always
+// structurally readable even when its payload isn't.
+table ExtensionEntry {
+  domain:EntityDomain;
+  entity_id:uint64;
+  ext_namespace:string;
+  name:string;
+  version:uint32;
+  payload:[ubyte];
+}
+
+// Opaque, per-entity raw bytes for source-format data an importer
+// recognizes syntactically but cannot semantically map into the IR.
+// Distinct from ExtensionEntry: never typed or interpreted by PCB-IR,
+// round-tripped verbatim back to `source_format` on export.
+table PassthroughBlobEntry {
+  domain:EntityDomain;
+  entity_id:uint64;
+  source_format:string;
+  data:[ubyte];
+}
+
+// The full-board snapshot. Each layer is nested as its own independently
+// built/parsed FlatBuffer (`nested_flatbuffer`) rather than composed
+// field-by-field, so schemas/geometry.fbs, schemas/connectivity.fbs, and
+// schemas/stackup.fbs -- and the serialize()/deserialize_*() functions
+// already written against them -- are reused completely unchanged;
+// composing them here is purely a matter of embedding their
+// already-produced bytes as a blob, never re-deriving their contents
+// field by field.
+table BoardSnapshot {
+  format_version:FormatVersion (required);
+  geometry:[ubyte] (required, nested_flatbuffer: "pcbir.geometry.fbs.GeometrySnapshot");
+  connectivity:[ubyte] (required, nested_flatbuffer: "pcbir.connectivity.fbs.ConnectivitySnapshot");
+  stackup:[ubyte] (required, nested_flatbuffer: "pcbir.stackup.fbs.StackupSnapshot");
+  extensions:[ExtensionEntry];
+  passthrough_blobs:[PassthroughBlobEntry];
+}
+
+root_type BoardSnapshot;

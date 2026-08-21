@@ -80,7 +80,7 @@ std::vector<Diagnostic> validate(const ConnectivitySnapshot& snapshot) {
 
   // Pin-level cross-entity checks: a net reference that doesn't resolve
   // within this snapshot, and a pad claimed by more than one Pin (a short
-  // -- the "at most one net per pad" invariant, TASKS.md Phase 3).
+  // -- the "at most one net per pad" invariant).
   std::unordered_map<core::EntityId::ValueType, core::EntityId> pad_owner;
   snapshot.table<Pin>().for_each([&](core::EntityId id, const Pin& pin) {
     if (!pin.net.is_null() && nets.find(pin.net).is_null()) {

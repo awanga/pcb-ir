@@ -19,8 +19,15 @@
 
 ## Versioning policy
 
-- Each file carries a `(major, minor)` wire-format version.
+- Each file carries a `(major, minor)` wire-format version -- `pcbir::FormatVersion`
+  (`include/pcbir/format_version.hpp`), a `BoardSnapshot.format_version` struct field
+  (`schemas/snapshot.fbs`). `pcbir::CURRENT_FORMAT_VERSION` is the version this build writes and
+  the major version it requires on read.
 - A reader **rejects** unknown `major`; **tolerates** unknown `minor` (additive fields only).
+  `pcbir::deserialize_board` implements this concretely: it throws `pcbir::FormatError` when
+  `format_version.major != CURRENT_FORMAT_VERSION.major`, and never inspects `minor` at all --
+  FlatBuffers' own field-addition compatibility already makes an unrecognized additive minor
+  field a no-op for an older reader, so "tolerate" requires no extra code.
 - FlatBuffers provides field-addition compatibility but NOT structural migration. A
   documented migration hook is reserved before v0.1 freeze.
 - Any schema change is API-breaking by default and is user-gated.
@@ -124,11 +131,10 @@ entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`P
 
 ## Connectivity encoding
 
-- `schemas/connectivity.fbs` (`pcbir::connectivity`, TASKS.md Phase 3) is a standalone root
-  schema, the same way `schemas/geometry.fbs` is -- composed into the root snapshot schema in
-  a later phase (Phase 5). It is deliberately geometry-free: no field references a shape,
-  layer, or coordinate, so a net's name and membership are resolvable without loading the
-  geometry layer at all.
+- `schemas/connectivity.fbs` (`pcbir::connectivity`) is a standalone root schema, the same way
+  `schemas/geometry.fbs` is -- composed into the root snapshot schema (see Snapshot composition
+  below). It is deliberately geometry-free: no field references a shape, layer, or coordinate,
+  so a net's name and membership are resolvable without loading the geometry layer at all.
 - `Net` carries only a `name`.
 - `Pin` is the connectivity layer's node: a `pad` field (the geometry-layer pad/via's stable
   `EntityId`, never the geometry itself) and a `net` field (the owning `Net`'s `EntityId`, or
@@ -149,7 +155,7 @@ entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`P
 `pcbir::connectivity::DiagnosticCode` (`include/pcbir/connectivity/diagnostics.hpp`) is its
 own stable code space, scoped to the connectivity layer the same way
 `pcbir::geometry::DiagnosticCode` is scoped to geometry -- unifying per-layer diagnostic
-spaces into one is Post-MVP pass-manager work (TASKS.md Phase 10), not a Phase 3 requirement.
+spaces into one is Post-MVP pass-manager work, not something this layer needs on its own.
 `pcbir::connectivity::validate(const ConnectivitySnapshot&)` combines each entity's own
 `validate()` with the cross-entity checks (dangling net references, duplicate pad assignment,
 dangling diff-pair/bus members) that need the whole net graph to decide.
@@ -170,9 +176,9 @@ dangling diff-pair/bus members) that need the whole net graph to decide.
 
 ## Stackup encoding
 
-- `schemas/stackup.fbs` (`pcbir::stackup`, TASKS.md Phase 4) is a standalone root schema, the
-  same way `schemas/geometry.fbs` and `schemas/connectivity.fbs` are -- composed into the root
-  snapshot schema in a later phase (Phase 5).
+- `schemas/stackup.fbs` (`pcbir::stackup`) is a standalone root schema, the same way
+  `schemas/geometry.fbs` and `schemas/connectivity.fbs` are -- composed into the root snapshot
+  schema (see Snapshot composition below).
 - The wire format never carries floating point (see Encoding above); `Material`'s
   `dielectric_constant_e6`/`loss_tangent_e6` and `ImpedanceProfile`'s
   `target_ohm_e6`/`actual_ohm_e6` are dimensionless/electrical fixed-point fields, each the
@@ -209,9 +215,9 @@ dangling diff-pair/bus members) that need the whole net graph to decide.
 
 `pcbir::stackup::DiagnosticCode` (`include/pcbir/stackup/diagnostics.hpp`) is its own stable
 code space, scoped to the stackup layer the same way geometry's and connectivity's are scoped
-to theirs -- unifying per-layer diagnostic spaces into one is Post-MVP pass-manager work
-(TASKS.md Phase 10), not a Phase 4 requirement. `pcbir::stackup::validate(const
-StackupSnapshot&)` combines each entity's own `validate()` with the cross-entity checks
+to theirs -- unifying per-layer diagnostic spaces into one is Post-MVP pass-manager work, not
+something this layer needs on its own. `pcbir::stackup::validate(const StackupSnapshot&)`
+combines each entity's own `validate()` with the cross-entity checks
 (dangling layer/material references) that need the whole stackup to decide.
 
 `pcbir::stackup::validate_via_layer_references(const GeometrySnapshot&, const
@@ -238,14 +244,95 @@ referenced layer is flagged, not silently corrupted" guarantee.
 | `DanglingLayerMaterialReference` | 12 | A `Layer`'s `material` does not resolve to any `Material` in the snapshot. |
 | `DanglingViaLayerReference` | 13 | A geometry `Via`'s `start_layer`/`end_layer` does not resolve to any `Layer` in the stackup snapshot. |
 
+## Snapshot composition (root schema)
+
+`schemas/snapshot.fbs` (`pcbir::BoardSnapshot`) is the root schema composing the geometry,
+connectivity, and stackup layers -- each already its own standalone,
+round-trippable root schema (`schemas/geometry.fbs`, `schemas/connectivity.fbs`,
+`schemas/stackup.fbs`) -- into one file-level buffer.
+
+- Each layer is nested as its own independently-built, independently-parseable FlatBuffer, via
+  FlatBuffers' `nested_flatbuffer` attribute (`geometry:[ubyte] (required, nested_flatbuffer:
+  "pcbir.geometry.fbs.GeometrySnapshot");`, and the same for `connectivity`/`stackup`) rather
+  than composed field-by-field. This means composing a board never re-derives a layer's
+  contents: `pcbir::serialize` calls the existing, unmodified `geometry::serialize`/
+  `connectivity::serialize`/`stackup::serialize` to produce each layer's bytes, then embeds
+  those bytes as a blob; `pcbir::deserialize_board` does the reverse, handing
+  each nested byte range to the existing `deserialize_geometry`/`deserialize_connectivity`/
+  `deserialize_stackup`. Every per-layer function keeps its original signature and behavior --
+  composition is purely an outer wrapping concern.
+- `pcbir::EntityDomain` (`Geometry`/`Connectivity`/`Stackup`) identifies which layer an
+  `EntityId` belongs to. Each layer's `Workspace` allocates its own `EntityId` space
+  independently (`docs/architecture.md`), so a bare `EntityId` is ambiguous across layers --
+  `(domain, entity_id)` together are not. This is the mechanism `ExtensionEntry` and
+  `PassthroughBlobEntry` below use to attach data to an entity in any layer without requiring a
+  single unified cross-layer id space.
+- `pcbir::Extension` (`ExtensionEntry` in the schema) is a namespaced, typed, versioned piece of
+  data attached to one `(domain, entity_id)` pair, without requiring a breaking schema change to
+  add (`docs/extensions-governance.md`). `ext_namespace` is one of `VENDOR_*`, `EXT_*`, or a
+  registered `PCBIR_*` name; `name` identifies the extension within that namespace; `payload` is
+  opaque bytes a reader that doesn't recognize `(ext_namespace, name)` safely ignores -- the
+  `ExtensionEntry` itself still round-trips unchanged regardless.
+- `pcbir::PassthroughBlob` (`PassthroughBlobEntry`) is opaque, per-entity raw bytes for
+  source-format data an importer recognizes syntactically but cannot semantically map into the
+  IR. Distinct from `Extension`: never typed or interpreted by PCB-IR, round-tripped verbatim
+  back to `source_format` on export.
+- `BoardSnapshot.format_version`, `.geometry`, `.connectivity`, and `.stackup` are all
+  `(required)` in the schema, so a buffer missing any of them fails verification
+  (see Serialization fuzz targets below) rather than reaching a null dereference.
+  `.extensions`/`.passthrough_blobs` stay optional -- a board with neither is the common case.
+
+## Zero-copy load
+
+`pcbir::BoardFileView` (`include/pcbir/board_file_view.hpp`) maps a file written by
+`pcbir::serialize` directly into the process's address space (`mmap` on POSIX,
+`MapViewOfFile` on Windows) instead of reading it into a heap buffer, satisfying this document's
+"zero-copy load" goal above. Opening a file and reading its header/index fields (format version,
+each layer's byte size, extension/passthrough-blob counts) costs O(1)-ish relative to board
+size: none of it materializes a single entity into an owning container. `materialize()` is the
+deliberately-separate, expensive escape hatch -- it runs the same full `deserialize_board` path
+as loading a heap buffer would, once a caller actually needs more than the header.
+
+By default, `open()` runs the same FlatBuffers structural verification `deserialize_board` does
+before returning (`VerifyPolicy::Verify`), so a corrupt/malformed file is rejected
+(`pcbir::FormatError`) rather than left to crash on first access -- this makes `open()` itself
+scale with board size (verification is proportional to structural size), even though header
+access after a successful `open()` does not. `VerifyPolicy::Skip` restores the pure O(1)
+property for input whose provenance is already trusted (e.g. a file this process just wrote);
+it must never be used for untrusted or externally-sourced input.
+
+## Serialization fuzz targets
+
+Every `deserialize_geometry`/`deserialize_connectivity`/`deserialize_stackup`/`deserialize_board`
+runs FlatBuffers structural verification (`flatbuffers::Verifier` + the schema's generated
+`Verify*Buffer`) before reading a single field, and throws `pcbir::FormatError`
+(`include/pcbir/format_error.hpp`) on a structurally invalid buffer or an unsupported major
+format version, rather than crashing or reading out of bounds. `fuzz/geometry_fuzz.cpp`,
+`fuzz/connectivity_fuzz.cpp`, `fuzz/stackup_fuzz.cpp`, and `fuzz/board_fuzz.cpp` (built under
+`PCBIR_BUILD_FUZZ`, see `CONTRIBUTING.md`) are libFuzzer targets, one per deserializer, each
+seeded from its own `fuzz/corpus/<layer>/` directory.
+
+Verifying a FlatBuffers buffer's structure (offsets in bounds, vtables valid) is necessary but
+not sufficient: a `table`/`struct`-typed field a reader unconditionally dereferences must also
+be marked `(required)` in the schema, or a structurally-valid buffer that simply omits that
+field passes verification and then crashes on the dereference. Every such field across
+`schemas/geometry.fbs`, `schemas/connectivity.fbs`, and `schemas/stackup.fbs` (every `Entry`
+table's `value`, every `Point`-typed field, `Polygon.outline`, `Pad`/`CopperPour`/`Keepout`/
+`MaskOpening`'s `outline`, `Track`/`SilkscreenGraphic`'s `path`) is `(required)` for exactly
+this reason -- found by running these fuzz targets, not by inspection alone. A FlatBuffers
+union's value can still be `(required)`-present while its type discriminator defaults to `NONE`
+on a malformed buffer (the verifier does not reject that combination); `read_span`
+(`src/pcbir/geometry/serialize.cpp`) explicitly rejects a `NONE` span type rather than
+reinterpreting an unrelated payload as a `Segment`.
+
 ## Extensions
 
-- Namespaced; see `docs/extensions-governance.md`.
+- Namespaced; see `docs/extensions-governance.md` and Snapshot composition above.
 
 ## Intent & Planning schema (reserved, Post-MVP)
 
-`schemas/intent.fbs` (Layer 6, `TASKS.md` Phase 14) is reserved, not built, in v0.1, the same
-way the archive/container layer is (`docs/architecture.md`). It will carry engineering
+`schemas/intent.fbs` (Layer 6) is reserved, not built, in v0.1, the same way the
+archive/container layer is (`docs/architecture.md`). It will carry engineering
 intent, transformation-plan/transaction history, and stable semantic-identifier alias tables
 — round-tripping through the same snapshot/workspace mechanism as every other layer, so no
 breaking schema change is needed to add it later. See `docs/architecture.md` → "The Intent &

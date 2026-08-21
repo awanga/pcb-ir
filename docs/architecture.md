@@ -26,8 +26,8 @@ to agree with each other directly. Concretely, the project is:
 None of these are bolted on to an otherwise format-only project. The file format and the C
 ABI remain the stable integration surface (`docs/format-spec.md`, `docs/c-abi.md`), but the
 surrounding infrastructure — up to and including how AI systems interact with a board — is
-part of the architecture from v0.1 onward, even where its implementation is sequenced into
-later phases (`TASKS.md`).
+part of the architecture from v0.1 onward, even where its implementation lands as Post-MVP
+work.
 
 PCB-IR positions itself as a **vendor-neutral physical-design platform**, not merely a file
 format. See [Long-term positioning](#long-term-positioning) for the closing statement of that
@@ -414,9 +414,9 @@ Every import/export operation reports **translation fidelity**, classified into 
   doesn't yet handle, distinct from genuinely unrepresentable ("lost") semantics.
 
 This four-tier model, together with [capability negotiation](#capability-negotiation),
-applies uniformly to every importer/exporter PCB-IR ships (KiCad first, per `TASKS.md`;
-IPC-2581/ODB++/Gerber-X2 Post-MVP) and to any third-party importer/exporter built against the
-same infrastructure.
+applies uniformly to every importer/exporter PCB-IR ships (KiCad first; IPC-2581/ODB++/
+Gerber-X2 Post-MVP) and to any third-party importer/exporter built against the same
+infrastructure.
 
 ## Spatial indexing
 
@@ -462,8 +462,8 @@ designed here now so v0.1's schema never needs a breaking change to accommodate 
 
 Code today is organized flat, by concern, under `include/pcbir/` and `src/pcbir/`
 (`core/`, `geometry/`), plus top-level `schemas/`, `tests/`, `fuzz/` — kept intentionally flat
-through the interchange-first MVP push (`TASKS.md`) to minimize build-system churn while the
-format itself is still stabilizing.
+through the interchange-first MVP push to minimize build-system churn while the format itself
+is still stabilizing.
 
 ### Target (long-term)
 
@@ -509,16 +509,16 @@ docs/
 ```
 
 `libs/topology`, `libs/constraints`, `libs/passes`, `libs/visualization`, and `libs/ml` are
-where the corresponding Post-MVP sections of `TASKS.md` (Connectivity is MVP; Constraints,
-Optimization, Visualization, ML infrastructure are Post-MVP) land once built — this layout is
-the destination, not a renaming of work already done. `libs/mcp`, `libs/services`,
-`libs/intent`, and `libs/capabilities` are new subsystems with no prior code to migrate, so
-they can be created directly in this layout as soon as their own `TASKS.md` phases begin.
+where the corresponding Post-MVP work (Connectivity is MVP; Constraints, Optimization,
+Visualization, ML infrastructure are Post-MVP) land once built — this layout is the
+destination, not a renaming of work already done. `libs/mcp`, `libs/services`, `libs/intent`,
+and `libs/capabilities` are new subsystems with no prior code to migrate, so they can be
+created directly in this layout as soon as that work begins.
 
 **Migrating `include/pcbir/{core,geometry}` and `src/pcbir/{core,geometry}` into
 `libs/core`/`libs/geometry` is itself a major build-system change** and, per `AGENTS.md`'s
 change-control rules, requires explicit user approval before it's carried out — it is tracked
-as its own task in `TASKS.md` rather than assumed. Until that migration happens, treat this
+as its own deliberate task rather than assumed. Until that migration happens, treat this
 section as the target this document plans against, and the "Current" subsection above as
 ground truth for where code actually lives.
 

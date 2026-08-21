@@ -12,3 +12,18 @@ add_executable(pcbir_geometry_fuzz geometry_fuzz.cpp)
 target_link_libraries(pcbir_geometry_fuzz PRIVATE pcbir_core)
 target_compile_options(pcbir_geometry_fuzz PRIVATE -fsanitize=fuzzer,address)
 target_link_options(pcbir_geometry_fuzz PRIVATE -fsanitize=fuzzer,address)
+
+add_executable(pcbir_connectivity_fuzz connectivity_fuzz.cpp)
+target_link_libraries(pcbir_connectivity_fuzz PRIVATE pcbir_core)
+target_compile_options(pcbir_connectivity_fuzz PRIVATE -fsanitize=fuzzer,address)
+target_link_options(pcbir_connectivity_fuzz PRIVATE -fsanitize=fuzzer,address)
+
+add_executable(pcbir_stackup_fuzz stackup_fuzz.cpp)
+target_link_libraries(pcbir_stackup_fuzz PRIVATE pcbir_core)
+target_compile_options(pcbir_stackup_fuzz PRIVATE -fsanitize=fuzzer,address)
+target_link_options(pcbir_stackup_fuzz PRIVATE -fsanitize=fuzzer,address)
+
+add_executable(pcbir_board_fuzz board_fuzz.cpp)
+target_link_libraries(pcbir_board_fuzz PRIVATE pcbir_core)
+target_compile_options(pcbir_board_fuzz PRIVATE -fsanitize=fuzzer,address)
+target_link_options(pcbir_board_fuzz PRIVATE -fsanitize=fuzzer,address)
