@@ -65,7 +65,7 @@ void bench_board_file_view_header(benchmark::State& state) {
   const std::filesystem::path path = write_board_with_n_vias(count);
 
   for (auto _ : state) {
-    BoardFileView view = BoardFileView::open(path, BoardFileView::VerifyPolicy::Skip);
+    const BoardFileView view = BoardFileView::open(path, BoardFileView::VerifyPolicy::Skip);
     benchmark::DoNotOptimize(view.format_version());
   }
 

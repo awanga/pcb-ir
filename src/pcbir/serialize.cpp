@@ -170,7 +170,8 @@ BoardSnapshot deserialize_board(std::span<const uint8_t> buffer) {
   // above already guarantees every pointer dereferenced below is non-null.
   const FormatVersion format_version = read_format_version(board->format_version());
   if (format_version.major != CURRENT_FORMAT_VERSION.major) {
-    throw FormatError("unsupported board snapshot format major version");
+    throw FormatError(FormatError::Reason::UnsupportedVersion,
+                      "unsupported board snapshot format major version");
   }
 
   BoardSnapshot result;

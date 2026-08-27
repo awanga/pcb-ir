@@ -82,3 +82,43 @@ target_include_directories(pcbir_core
 )
 
 target_link_libraries(pcbir_core PRIVATE pcbir_warnings flatbuffers::flatbuffers clipper2::clipper2)
+
+# The stable C ABI (include/pcbir/pcbir.h, docs/rfcs/0001-stable-c-abi.md).
+# Static-only for now (shipping decision deferred, see the RFC); symbol
+# visibility is wired now regardless so a future shared build never needs
+# retrofitting.
+include(GenerateExportHeader)
+
+add_library(pcbir_c_abi STATIC
+  pcbir/c_abi/error.cpp
+  pcbir/c_abi/board.cpp
+  pcbir/c_abi/geometry.cpp
+  pcbir/c_abi/connectivity.cpp
+  pcbir/c_abi/stackup.cpp
+)
+
+set_target_properties(pcbir_c_abi PROPERTIES
+  C_VISIBILITY_PRESET hidden
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+)
+
+# Generates ${CMAKE_BINARY_DIR}/generated/pcbir_c_abi_export.h, defining
+# PCBIR_API. pcbir.h includes it opportunistically (via __has_include) so a
+# bare copy of the header still compiles without it.
+generate_export_header(pcbir_c_abi
+  BASE_NAME PCBIR
+  EXPORT_MACRO_NAME PCBIR_API
+  EXPORT_FILE_NAME "${CMAKE_BINARY_DIR}/generated/pcbir_c_abi_export.h"
+)
+
+target_include_directories(pcbir_c_abi
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(pcbir_c_abi PRIVATE pcbir_core pcbir_warnings)
