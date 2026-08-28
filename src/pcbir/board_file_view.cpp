@@ -173,7 +173,7 @@ BoardFileView BoardFileView::open(const std::filesystem::path& path, VerifyPolic
         errno, std::generic_category(), "failed to open board file: " + path.string());
   }
 
-  struct stat status {};
+  struct stat status{};
   if (fstat(file_descriptor, &status) != 0) {
     const int saved_errno = errno;
     ::close(file_descriptor);
