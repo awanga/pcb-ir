@@ -31,6 +31,7 @@ struct SampleIds {
   EntityId fr4_material;
   EntityId copper_layer;
   EntityId core_layer;
+  EntityId edge_cuts_layer;
   EntityId layer_stack;
   EntityId impedance_profile;
 };
@@ -59,6 +60,15 @@ StackupSnapshot build_sample_snapshot(SampleIds& ids) {
   const auto stack =
       workspace.insert(LayerStack{.name = "2-layer", .layers = {ids.copper_layer, ids.core_layer}});
   ids.layer_stack = workspace.table<LayerStack>().id_of(stack);
+
+  // Not a member of the LayerStack above -- EdgeCuts is not a physical
+  // layer, only a board-outline reference target.
+  const auto edge_cuts = workspace.insert(Layer{.name = "Edge.Cuts",
+                                                .kind = LayerKind::EdgeCuts,
+                                                .thickness_nm = 0,
+                                                .roughness_nm = 0,
+                                                .material = EntityId{}});
+  ids.edge_cuts_layer = workspace.table<Layer>().id_of(edge_cuts);
 
   const auto profile = workspace.insert(ImpedanceProfile{
       .class_name = "USB_DIFF", .target_ohm_e6 = 90000000, .actual_ohm_e6 = 91200000});
@@ -119,6 +129,19 @@ TEST_CASE("A Layer round-trips its kind, thickness/roughness, and material refer
   REQUIRE(restored_copper->kind == LayerKind::Copper);
   REQUIRE(restored_copper->roughness_nm == 2500);
   REQUIRE(restored_copper->material.is_null());
+}
+
+TEST_CASE("An EdgeCuts Layer round-trips its kind and zero thickness", "[stackup][serialize]") {
+  SampleIds ids;
+  const StackupSnapshot original = build_sample_snapshot(ids);
+  const StackupSnapshot restored = round_trip(original);
+
+  const Layer* restored_edge_cuts =
+      restored.table<Layer>().try_get(restored.table<Layer>().find(ids.edge_cuts_layer));
+  REQUIRE(restored_edge_cuts != nullptr);
+  REQUIRE(restored_edge_cuts->kind == LayerKind::EdgeCuts);
+  REQUIRE(restored_edge_cuts->thickness_nm == 0);
+  REQUIRE(restored_edge_cuts->material.is_null());
 }
 
 TEST_CASE("A LayerStack round-trips its member ordering", "[stackup][serialize]") {

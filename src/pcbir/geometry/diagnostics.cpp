@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/geometry/diagnostics.hpp"
 
+#include "pcbir/core/arena.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/drill_hit.hpp"
+#include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/keepout.hpp"
 #include "pcbir/geometry/mask_opening.hpp"
 #include "pcbir/geometry/pad.hpp"
@@ -14,6 +17,7 @@
 #include "pcbir/geometry/track.hpp"
 #include "pcbir/geometry/via.hpp"
 
+#include <unordered_map>
 #include <vector>
 
 namespace pcbir::geometry {
@@ -112,6 +116,17 @@ DiagnosticCode validate(const SilkscreenGraphic& graphic) {
   return from_path_validity(validate(graphic.path));
 }
 
+DiagnosticCode validate(const Footprint& footprint) {
+  if (footprint.reference_designator.empty()) {
+    return DiagnosticCode::EmptyReferenceDesignator;
+  }
+  return DiagnosticCode::Valid;
+}
+
+DiagnosticCode validate(const BoardOutline& outline) {
+  return from_polygon_validity(validate(outline.outline));
+}
+
 std::vector<Diagnostic> validate(const GeometrySnapshot& snapshot) {
   std::vector<Diagnostic> result;
   collect<Pad>(snapshot, result);
@@ -122,6 +137,32 @@ std::vector<Diagnostic> validate(const GeometrySnapshot& snapshot) {
   collect<DrillHit>(snapshot, result);
   collect<MaskOpening>(snapshot, result);
   collect<SilkscreenGraphic>(snapshot, result);
+  collect<Footprint>(snapshot, result);
+  collect<BoardOutline>(snapshot, result);
+
+  // Footprint-membership cross-entity checks: a member that resolves to
+  // neither the Pad nor the Via table (dangling), and a Pad/Via claimed by
+  // more than one Footprint (duplicate) -- mirrors
+  // connectivity::validate(const ConnectivitySnapshot&)'s pad_owner
+  // tracking for Pin.pad.
+  const core::Arena<Pad>& pads = snapshot.table<Pad>();
+  const core::Arena<Via>& vias = snapshot.table<Via>();
+  std::unordered_map<core::EntityId::ValueType, core::EntityId> member_owner;
+  snapshot.table<Footprint>().for_each([&](core::EntityId id, const Footprint& footprint) {
+    for (const core::EntityId& member : footprint.pads) {
+      if (pads.find(member).is_null() && vias.find(member).is_null()) {
+        result.push_back(
+            Diagnostic{.id = id, .code = DiagnosticCode::DanglingFootprintMemberReference});
+        continue;
+      }
+      const auto [it, inserted] = member_owner.try_emplace(member.value(), id);
+      if (!inserted) {
+        result.push_back(
+            Diagnostic{.id = id, .code = DiagnosticCode::DuplicateFootprintMemberReference});
+      }
+    }
+  });
+
   return result;
 }
 

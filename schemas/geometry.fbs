@@ -62,6 +62,7 @@ table Pad {
   position:Point (required);
   outline:Polygon (required);
   layer:uint64;
+  pad_number:string;
 }
 
 table Via {
@@ -71,16 +72,19 @@ table Via {
   pad_diameter_nm:int64;
   start_layer:uint64;
   end_layer:uint64;
+  pad_number:string;
 }
 
 table Track {
   path:Path (required);
   layer:uint64;
+  net:uint64;
 }
 
 table CopperPour {
   outline:Polygon (required);
   layer:uint64;
+  net:uint64;
 }
 
 table Keepout {
@@ -104,6 +108,29 @@ table SilkscreenGraphic {
   layer:uint64;
 }
 
+enum FootprintSide:ubyte { Top, Bottom }
+
+// A placed component grouping the Pad/Via entities that belong to it
+// (docs/rfcs/0002-kicad-schema-foundation.md). `pads` holds a mix of Pad
+// and Via EntityIds.
+table Footprint {
+  reference_designator:string;
+  value:string;
+  position:Point (required);
+  rotation_e6:int64;
+  side:FootprintSide;
+  pads:[uint64];
+}
+
+// The board's mechanical boundary; `layer` must resolve to a stackup Layer
+// with kind EdgeCuts. Structurally identical to CopperPour/Keepout/
+// MaskOpening, kept as its own table purely for semantic distinction (the
+// same reasoning as Track vs. SilkscreenGraphic).
+table BoardOutline {
+  outline:Polygon (required);
+  layer:uint64;
+}
+
 // Every board entity also carries the stable EntityId (docs/architecture.md)
 // it was assigned in the workspace it was built from, so a load -> edit ->
 // save round trip preserves identity, not just shape. `value` is
@@ -118,6 +145,8 @@ table KeepoutEntry { id:uint64; value:Keepout (required); }
 table DrillHitEntry { id:uint64; value:DrillHit (required); }
 table MaskOpeningEntry { id:uint64; value:MaskOpening (required); }
 table SilkscreenGraphicEntry { id:uint64; value:SilkscreenGraphic (required); }
+table FootprintEntry { id:uint64; value:Footprint (required); }
+table BoardOutlineEntry { id:uint64; value:BoardOutline (required); }
 
 table GeometrySnapshot {
   pads:[PadEntry];
@@ -128,6 +157,8 @@ table GeometrySnapshot {
   drill_hits:[DrillHitEntry];
   mask_openings:[MaskOpeningEntry];
   silkscreen_graphics:[SilkscreenGraphicEntry];
+  footprints:[FootprintEntry];
+  board_outlines:[BoardOutlineEntry];
 }
 
 root_type GeometrySnapshot;

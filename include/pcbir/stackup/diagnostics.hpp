@@ -36,6 +36,10 @@ enum class DiagnosticCode : uint8_t {
   DanglingStackupLayerReference = 11,  // A LayerStack member does not resolve to any Layer.
   DanglingLayerMaterialReference = 12, // A Layer's material does not resolve to any Material.
   DanglingViaLayerReference = 13,      // A geometry Via's start/end layer resolves to no Layer.
+  NonPhysicalStackupLayerMember = 14,  // A LayerStack member is an EdgeCuts (non-physical) Layer.
+  DanglingBoardOutlineLayerReference = 15, // A geometry BoardOutline's layer resolves to no Layer.
+  BoardOutlineLayerWrongKind =
+      16, // A geometry BoardOutline's layer resolves to a non-EdgeCuts Layer.
 };
 
 [[nodiscard]] DiagnosticCode validate(const Material& material);
@@ -58,15 +62,20 @@ struct Diagnostic {
 [[nodiscard]] std::vector<Diagnostic> validate(const StackupSnapshot& snapshot);
 
 // A geometry Via names its stackup layer span by stable EntityId, never by
-// geometry (include/pcbir/geometry/via.hpp) -- so a stackup edit that
-// removes a referenced layer must be detectable rather than silently
-// corrupting the via. This is a separate, opt-in check (rather than folded
-// into validate() above) because it is the one stackup diagnostic that
+// geometry (include/pcbir/geometry/via.hpp), and a geometry BoardOutline
+// names its EdgeCuts layer the same way -- so a stackup edit that removes a
+// referenced layer must be detectable rather than silently corrupting
+// either. This is a separate, opt-in check (rather than folded into
+// validate() above) because it is the one stackup diagnostic family that
 // needs a geometry snapshot as well as a stackup one; a caller that only
-// has a StackupSnapshot never needs to pay for it.
+// has a StackupSnapshot never needs to pay for it. A BoardOutline's layer
+// resolving to a real Layer that is not `kind == EdgeCuts` is reported
+// separately from a fully dangling reference (BoardOutlineLayerWrongKind
+// vs. DanglingBoardOutlineLayerReference), since the two call for different
+// fixes.
 [[nodiscard]] std::vector<Diagnostic>
-validate_via_layer_references(const geometry::GeometrySnapshot& geometry_snapshot,
-                              const StackupSnapshot& stackup_snapshot);
+validate_layer_references(const geometry::GeometrySnapshot& geometry_snapshot,
+                          const StackupSnapshot& stackup_snapshot);
 
 } // namespace pcbir::stackup
 

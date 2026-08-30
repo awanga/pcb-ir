@@ -3,8 +3,10 @@
 #define PCBIR_GEOMETRY_DIAGNOSTICS_HPP
 
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/drill_hit.hpp"
+#include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/keepout.hpp"
 #include "pcbir/geometry/mask_opening.hpp"
 #include "pcbir/geometry/pad.hpp"
@@ -42,6 +44,9 @@ enum class DiagnosticCode : uint8_t {
   NonPositiveFinishedHoleDiameter = 11,
   NonPositivePadDiameter = 12,
   NonPositiveAnnularRing = 13,
+  EmptyReferenceDesignator = 14,          // A Footprint's reference_designator is empty.
+  DanglingFootprintMemberReference = 15,  // A Footprint's pads entry resolves to no Pad/Via.
+  DuplicateFootprintMemberReference = 16, // The same Pad/Via is listed by more than one Footprint.
 };
 
 [[nodiscard]] DiagnosticCode validate(const Pad& pad);
@@ -52,6 +57,8 @@ enum class DiagnosticCode : uint8_t {
 [[nodiscard]] DiagnosticCode validate(const DrillHit& hit);
 [[nodiscard]] DiagnosticCode validate(const MaskOpening& opening);
 [[nodiscard]] DiagnosticCode validate(const SilkscreenGraphic& graphic);
+[[nodiscard]] DiagnosticCode validate(const Footprint& footprint);
+[[nodiscard]] DiagnosticCode validate(const BoardOutline& outline);
 
 // One non-Valid finding from a validation pass, identifying which entity
 // produced it.
@@ -61,11 +68,14 @@ struct Diagnostic {
 };
 
 // Runs the per-entity `validate` above over every entity in `snapshot`
-// (every board-entity table geometry defines), returning one Diagnostic
-// per entity whose code is not Valid. Entities are visited table-by-table
-// in the snapshot's own canonical (insertion) order, then within each
-// table in that table's iteration order, so the result is deterministic
-// for a given snapshot.
+// (every board-entity table geometry defines), plus the cross-entity
+// Footprint-membership checks that need the whole snapshot to decide
+// (dangling/duplicate Footprint.pads references against the union of the
+// Pad and Via tables), mirroring connectivity::validate(const
+// ConnectivitySnapshot&)'s per-entity-plus-cross-entity structure. Entities
+// are visited table-by-table in the snapshot's own canonical (insertion)
+// order, then within each table in that table's iteration order, so the
+// result is deterministic for a given snapshot.
 [[nodiscard]] std::vector<Diagnostic> validate(const GeometrySnapshot& snapshot);
 
 } // namespace pcbir::geometry

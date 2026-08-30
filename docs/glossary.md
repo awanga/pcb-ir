@@ -14,7 +14,7 @@ canonical term per concept and cross-references the vendor terms it replaces.
 ## Layer 1 — Physical Geometry
 
 (To be expanded: pad, via, track/trace, copper pour/region, keepout, drill hit, mask
-opening, silkscreen graphic.)
+opening, silkscreen graphic, footprint, board outline.)
 
 ## Layer 2 — Connectivity Graph
 

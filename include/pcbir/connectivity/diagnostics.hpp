@@ -8,6 +8,7 @@
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/serialize.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -32,6 +33,8 @@ enum class DiagnosticCode : uint8_t {
   EmptyBus = 8,                // A Bus has no member nets.
   DuplicateBusMember = 9,      // A Bus lists the same net more than once.
   DanglingBusMember = 10,      // A Bus member net does not resolve to any Net.
+  DanglingGeometryNetReference =
+      11, // A geometry Track/CopperPour's net does not resolve to any Net.
 };
 
 [[nodiscard]] DiagnosticCode validate(const Net& net);
@@ -54,6 +57,17 @@ struct Diagnostic {
 // snapshot's own canonical (insertion) order, so the result is
 // deterministic for a given snapshot.
 [[nodiscard]] std::vector<Diagnostic> validate(const ConnectivitySnapshot& snapshot);
+
+// A geometry Track/CopperPour optionally names a claimed net by stable
+// EntityId (include/pcbir/geometry/track.hpp,
+// include/pcbir/geometry/copper_pour.hpp) -- so a connectivity edit that
+// removes a referenced net must be detectable, mirroring
+// pcbir::stackup::validate_layer_references's one-directional,
+// opt-in-geometry-dependency shape. Not folded into validate() above so a
+// caller with only a ConnectivitySnapshot never needs to pay for it.
+[[nodiscard]] std::vector<Diagnostic>
+validate_geometry_net_references(const geometry::GeometrySnapshot& geometry_snapshot,
+                                 const ConnectivitySnapshot& connectivity_snapshot);
 
 } // namespace pcbir::connectivity
 

@@ -17,11 +17,15 @@ table Material {
   loss_tangent_e6:int64;
 }
 
-enum LayerKind:ubyte { Copper, Dielectric }
+// EdgeCuts is not a physical layer -- it is the mechanical/drafting layer a
+// board outline (geometry.fbs BoardOutline) references. Only Copper/
+// Dielectric participate in the physical stackup (LayerStack).
+enum LayerKind:ubyte { Copper, Dielectric, EdgeCuts }
 
-// One physical layer in the board's cross-section. `material` is the
-// owning Material's EntityId, meaningful only for a Dielectric layer (0 /
-// null for Copper).
+// One layer in the board's layer-identity space. Only Copper/Dielectric are
+// physical layers in the board's cross-section. `material` is the owning
+// Material's EntityId, meaningful only for a Dielectric layer (0 / null for
+// Copper and EdgeCuts).
 table Layer {
   name:string;
   kind:LayerKind;

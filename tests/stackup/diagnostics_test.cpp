@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/board_outline.hpp"
+#include "pcbir/geometry/layer_ref.hpp"
 #include "pcbir/geometry/point.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/geometry/via.hpp"
@@ -17,7 +19,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 using pcbir::core::EntityId;
+using pcbir::geometry::BoardOutline;
 using pcbir::geometry::GeometryWorkspace;
+using pcbir::geometry::LayerRef;
 using pcbir::geometry::Point;
 using pcbir::geometry::Via;
 using pcbir::stackup::Diagnostic;
@@ -29,7 +33,7 @@ using pcbir::stackup::LayerStack;
 using pcbir::stackup::Material;
 using pcbir::stackup::StackupWorkspace;
 using pcbir::stackup::validate;
-using pcbir::stackup::validate_via_layer_references;
+using pcbir::stackup::validate_layer_references;
 
 namespace {
 
@@ -61,7 +65,8 @@ Via make_via(EntityId start_layer, EntityId end_layer) {
              .finished_hole_diameter_nm = 250000,
              .pad_diameter_nm = 450000,
              .start_layer = start_layer,
-             .end_layer = end_layer};
+             .end_layer = end_layer,
+             .pad_number = "1"};
 }
 
 } // namespace
@@ -99,6 +104,36 @@ TEST_CASE("LayerStack validation rejects empty and duplicate membership",
   REQUIRE(validate(LayerStack{.name = "D", .layers = {}}) == DiagnosticCode::EmptyStackup);
   REQUIRE(validate(LayerStack{.name = "D", .layers = {EntityId{1}, EntityId{1}}}) ==
           DiagnosticCode::DuplicateStackupLayer);
+}
+
+TEST_CASE("Layer validation treats zero thickness as valid for an EdgeCuts layer",
+          "[stackup][diagnostics]") {
+  REQUIRE(validate(Layer{.name = "Edge.Cuts",
+                         .kind = LayerKind::EdgeCuts,
+                         .thickness_nm = 0,
+                         .roughness_nm = 0,
+                         .material = EntityId{}}) == DiagnosticCode::Valid);
+  REQUIRE(validate(Layer{.name = "L1",
+                         .kind = LayerKind::Copper,
+                         .thickness_nm = 0,
+                         .roughness_nm = 0,
+                         .material = EntityId{}}) == DiagnosticCode::NonPositiveLayerThickness);
+}
+
+TEST_CASE("Validating a snapshot flags a LayerStack member that is a non-physical EdgeCuts layer",
+          "[stackup][diagnostics]") {
+  StackupWorkspace workspace;
+  const auto edge_cuts = workspace.insert(Layer{.name = "Edge.Cuts",
+                                                .kind = LayerKind::EdgeCuts,
+                                                .thickness_nm = 0,
+                                                .roughness_nm = 0,
+                                                .material = EntityId{}});
+  const EntityId edge_cuts_id = workspace.table<Layer>().id_of(edge_cuts);
+  const auto stack = workspace.insert(LayerStack{.name = "bad", .layers = {edge_cuts_id}});
+  const EntityId stack_id = workspace.table<LayerStack>().id_of(stack);
+
+  const std::vector<Diagnostic> diagnostics = validate(workspace.commit());
+  REQUIRE(has(diagnostics, stack_id, DiagnosticCode::NonPhysicalStackupLayerMember));
 }
 
 TEST_CASE("ImpedanceProfile validation rejects an empty class name and a non-positive target",
@@ -147,7 +182,7 @@ TEST_CASE("Validating a snapshot flags a Layer with a dangling material referenc
   REQUIRE(has(diagnostics, layer_id, DiagnosticCode::DanglingLayerMaterialReference));
 }
 
-TEST_CASE("validate_via_layer_references flags a Via whose layer span references a removed layer",
+TEST_CASE("validate_layer_references flags a Via whose layer span references a removed layer",
           "[stackup][diagnostics]") {
   StackupWorkspace stackup_workspace;
   const auto layer = stackup_workspace.insert(make_copper_layer(35000, 2500));
@@ -158,11 +193,11 @@ TEST_CASE("validate_via_layer_references flags a Via whose layer span references
   const EntityId dangling_via_id = geometry_workspace.table<Via>().id_of(dangling_via);
 
   const std::vector<Diagnostic> diagnostics =
-      validate_via_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
+      validate_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
   REQUIRE(has(diagnostics, dangling_via_id, DiagnosticCode::DanglingViaLayerReference));
 }
 
-TEST_CASE("validate_via_layer_references reports no diagnostics when every via layer resolves",
+TEST_CASE("validate_layer_references reports no diagnostics when every via layer resolves",
           "[stackup][diagnostics]") {
   StackupWorkspace stackup_workspace;
   const auto top = stackup_workspace.insert(make_copper_layer(35000, 2500));
@@ -174,6 +209,54 @@ TEST_CASE("validate_via_layer_references reports no diagnostics when every via l
   geometry_workspace.insert(make_via(top_id, bottom_id));
 
   const std::vector<Diagnostic> diagnostics =
-      validate_via_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
+      validate_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
+  REQUIRE(diagnostics.empty());
+}
+
+TEST_CASE("validate_layer_references flags a BoardOutline whose layer was removed",
+          "[stackup][diagnostics]") {
+  StackupWorkspace stackup_workspace;
+
+  GeometryWorkspace geometry_workspace;
+  const auto outline =
+      geometry_workspace.insert(BoardOutline{.outline = {}, .layer = LayerRef{999}});
+  const EntityId outline_id = geometry_workspace.table<BoardOutline>().id_of(outline);
+
+  const std::vector<Diagnostic> diagnostics =
+      validate_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
+  REQUIRE(has(diagnostics, outline_id, DiagnosticCode::DanglingBoardOutlineLayerReference));
+}
+
+TEST_CASE("validate_layer_references flags a BoardOutline whose layer is not EdgeCuts",
+          "[stackup][diagnostics]") {
+  StackupWorkspace stackup_workspace;
+  const auto copper = stackup_workspace.insert(make_copper_layer(35000, 2500));
+  const EntityId copper_id = stackup_workspace.table<Layer>().id_of(copper);
+
+  GeometryWorkspace geometry_workspace;
+  const auto outline = geometry_workspace.insert(BoardOutline{.outline = {}, .layer = copper_id});
+  const EntityId outline_id = geometry_workspace.table<BoardOutline>().id_of(outline);
+
+  const std::vector<Diagnostic> diagnostics =
+      validate_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
+  REQUIRE(has(diagnostics, outline_id, DiagnosticCode::BoardOutlineLayerWrongKind));
+}
+
+TEST_CASE("validate_layer_references reports no diagnostics for a BoardOutline on an EdgeCuts "
+          "layer",
+          "[stackup][diagnostics]") {
+  StackupWorkspace stackup_workspace;
+  const auto edge_cuts = stackup_workspace.insert(Layer{.name = "Edge.Cuts",
+                                                        .kind = LayerKind::EdgeCuts,
+                                                        .thickness_nm = 0,
+                                                        .roughness_nm = 0,
+                                                        .material = EntityId{}});
+  const EntityId edge_cuts_id = stackup_workspace.table<Layer>().id_of(edge_cuts);
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(BoardOutline{.outline = {}, .layer = edge_cuts_id});
+
+  const std::vector<Diagnostic> diagnostics =
+      validate_layer_references(geometry_workspace.commit(), stackup_workspace.commit());
   REQUIRE(diagnostics.empty());
 }

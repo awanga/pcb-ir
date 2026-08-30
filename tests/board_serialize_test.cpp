@@ -55,7 +55,8 @@ BoardSnapshot build_sample_board(SampleIds& ids) {
                                                  .finished_hole_diameter_nm = 150000,
                                                  .pad_diameter_nm = 350000,
                                                  .start_layer = EntityId{1},
-                                                 .end_layer = EntityId{4}});
+                                                 .end_layer = EntityId{4},
+                                                 .pad_number = "1"});
   ids.via = geometry_workspace.table<Via>().id_of(via);
 
   ConnectivityWorkspace connectivity_workspace;

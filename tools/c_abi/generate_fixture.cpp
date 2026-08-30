@@ -28,6 +28,7 @@
 int main(int argc, char** argv) {
   const std::span<char*> args(argv, static_cast<size_t>(argc));
   if (args.size() != 2) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
     std::cerr << "usage: " << (args.empty() ? "generate_fixture" : args[0]) << " <output-path>\n";
     return 1;
   }
@@ -39,7 +40,8 @@ int main(int argc, char** argv) {
                            .finished_hole_diameter_nm = 250000,
                            .pad_diameter_nm = 450000,
                            .start_layer = pcbir::core::EntityId{1},
-                           .end_layer = pcbir::core::EntityId{2}});
+                           .end_layer = pcbir::core::EntityId{2},
+                           .pad_number = "1"});
 
   pcbir::connectivity::ConnectivityWorkspace connectivity_workspace;
   const auto net = connectivity_workspace.insert(pcbir::connectivity::Net{.name = "GND"});
@@ -65,8 +67,11 @@ int main(int argc, char** argv) {
   board.stackup = stackup_workspace.commit();
 
   const std::vector<uint8_t> bytes = pcbir::serialize(board);
+  // args.size() == 2 is checked above, so index 1 is in bounds.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
   std::ofstream file(args[1], std::ios::binary | std::ios::trunc);
   if (!file) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
     std::cerr << "failed to open " << args[1] << " for writing\n";
     return 1;
   }

@@ -16,6 +16,11 @@
   any real board, but the honest bound of the type. Arithmetic that would overflow this range
   is a checked condition (`pcbir::geometry::checked_add`/`checked_sub`/`checked_mul`), not
   silent wraparound.
+- Dimensionless/electrical fixed-point fields (`Material.dielectric_constant_e6`, etc. --
+  see Stackup encoding below) are scaled by 1e6 and stored as `int64`. `Footprint.rotation_e6`
+  (`include/pcbir/geometry/footprint.hpp`) extends this same `_e6` convention to angular
+  measure for the first time: a rotation is stored as degrees * 1e6 (microdegrees), e.g. 90
+  degrees is `90000000`.
 
 ## Versioning policy
 
@@ -95,6 +100,30 @@ entity's own per-primitive validity enum (`ContourValidity`/`PolygonValidity`/`P
 | `NonPositiveFinishedHoleDiameter` | 11 | A `Via`'s `finished_hole_diameter_nm` is not positive. |
 | `NonPositivePadDiameter` | 12 | A `Via`'s `pad_diameter_nm` is not positive. |
 | `NonPositiveAnnularRing` | 13 | A `Via`'s derived `annular_ring_nm()` is not positive (`pad_diameter_nm` doesn't exceed `finished_hole_diameter_nm`). |
+| `EmptyReferenceDesignator` | 14 | A `Footprint`'s `reference_designator` is empty. |
+| `DanglingFootprintMemberReference` | 15 | A `Footprint`'s `pads` entry resolves to neither the `Pad` nor the `Via` table. |
+| `DuplicateFootprintMemberReference` | 16 | The same `Pad`/`Via` is listed by more than one `Footprint`. |
+
+`Pad` and `Via` also carry a `pad_number` (the footprint-local pad identifier, e.g. `"1"` or
+`"A1"` -- not generally sequential, so `Footprint.pads`' order alone cannot recover it; empty
+is legitimate for an unnumbered mechanical/fiducial pad). `Track` and `CopperPour` each carry an
+optionally-recorded `net` (a claimed, *not* geometrically derived or verified, connectivity
+`Net` `EntityId` -- see Connectivity diagnostic codes below for the cross-layer check).
+`Footprint` groups the `Pad`/`Via` entities belonging to one placed component
+(`reference_designator`, `value`, `position`, `rotation_e6`, `side`, `pads`).  `BoardOutline`
+(`outline: Polygon`, `layer: LayerRef`) is the board's mechanical boundary; its `layer` must
+resolve to a stackup `Layer{kind = EdgeCuts}` (see Stackup encoding below). Both are additive
+component tables on `GeometrySnapshot`, added for the KiCad round-trip
+(`docs/rfcs/0002-kicad-schema-foundation.md`).
+
+`pcbir::geometry::rotate` (`include/pcbir/geometry/rotate.hpp`) rotates a `Point`/`Segment`/
+`Arc`/`Span`/`Contour`/`Polygon` counterclockwise by an angle (degrees * 1e6) about an origin --
+general infrastructure any importer placing footprint-relative geometry at absolute board
+coordinates needs, not KiCad-specific. Exact (bit-identical across platforms) for angles that
+are a multiple of 90 degrees via integer swap/negate; for any other angle, falls back to
+double-precision `cos`/`sin` rounded half-away-from-zero (`std::llround`), the same documented
+best-effort-approximation approach already used at the Clipper2 arc-flattening boundary below --
+not guaranteed bit-exact across platforms the way the 90-degree fast path is.
 
 ## Boolean operations (Clipper2 boundary)
 
@@ -173,6 +202,14 @@ dangling diff-pair/bus members) that need the whole net graph to decide.
 | `EmptyBus` | 8 | A `Bus` has no member nets. |
 | `DuplicateBusMember` | 9 | A `Bus` lists the same net more than once. |
 | `DanglingBusMember` | 10 | A `Bus` member net does not resolve to any `Net`. |
+| `DanglingGeometryNetReference` | 11 | A geometry `Track`/`CopperPour`'s `net` does not resolve to any `Net`. |
+
+`pcbir::connectivity::validate_geometry_net_references(const GeometrySnapshot&, const
+ConnectivitySnapshot&)` is a separate, opt-in check for the last row above -- the one
+connectivity diagnostic that needs a geometry snapshot as well as a connectivity one, mirroring
+`pcbir::stackup::validate_layer_references`'s one-directional, opt-in-geometry-dependency shape.
+Not folded into `validate()` above so a caller with only a `ConnectivitySnapshot` never needs to
+pay for it.
 
 ## Stackup encoding
 
@@ -188,10 +225,14 @@ dangling diff-pair/bus members) that need the whole net graph to decide.
   same as every other length field in the format.
 - `Material` carries a `name` plus the two fixed-point constants above. It is referenced by a
   `Layer`, never embedded, so the same material can back more than one layer.
-- `Layer` is one physical layer in the board's cross-section: a `kind` (`Copper` or
-  `Dielectric`), `thickness_nm`, `roughness_nm` (copper foil profile; unused for `Dielectric`),
-  and a `material` reference (the owning `Material`'s `EntityId`; meaningful, and required, only
-  for a `Dielectric` layer).
+- `Layer` is one layer in the board's layer-identity space: a `kind` (`Copper`, `Dielectric`, or
+  `EdgeCuts`), `thickness_nm`, `roughness_nm` (copper foil profile; unused for `Dielectric`/
+  `EdgeCuts`), and a `material` reference (the owning `Material`'s `EntityId`; meaningful, and
+  required, only for a `Dielectric` layer). Only `Copper`/`Dielectric` are physical layers in
+  the board's cross-section (participate in `LayerStack` below); `EdgeCuts` is not physical --
+  it is the mechanical/drafting layer identity a geometry `BoardOutline` references, carrying
+  no thickness/material of its own (`thickness_nm == 0` is `EdgeCuts`'s normal, valid value, not
+  a validation failure -- see Stackup diagnostic codes below).
 - `LayerStack` is the board's physical stackup: a `name` and an ordered, top-to-bottom `layers`
   list of `Layer` `EntityId`s. Order is significant (physical build-up order, and which copper
   layers are adjacent determines valid blind/buried via spans) and is preserved on round-trip,
@@ -220,12 +261,15 @@ something this layer needs on its own. `pcbir::stackup::validate(const StackupSn
 combines each entity's own `validate()` with the cross-entity checks
 (dangling layer/material references) that need the whole stackup to decide.
 
-`pcbir::stackup::validate_via_layer_references(const GeometrySnapshot&, const
-StackupSnapshot&)` is a separate, opt-in check: the one stackup diagnostic that needs a
+`pcbir::stackup::validate_layer_references(const GeometrySnapshot&, const StackupSnapshot&)`
+(renamed from `validate_via_layer_references` when the `EdgeCuts`/`BoardOutline` checks below
+were added) is a separate, opt-in check: the one stackup diagnostic family that needs a
 geometry snapshot as well as a stackup one, so it is not folded into `validate()` above. It
 walks every `Via` in the geometry snapshot and flags one whose `start_layer`/`end_layer` no
 longer resolves to any `Layer` in the stackup snapshot -- the "a stackup edit that removes a
-referenced layer is flagged, not silently corrupted" guarantee.
+referenced layer is flagged, not silently corrupted" guarantee -- and does the analogous check
+for every `BoardOutline`'s `layer`, additionally distinguishing a fully dangling reference from
+one that resolves to a real `Layer` that isn't `kind == EdgeCuts`.
 
 | Code | Value | Meaning |
 |---|---|---|
@@ -233,7 +277,7 @@ referenced layer is flagged, not silently corrupted" guarantee.
 | `EmptyMaterialName` | 1 | A `Material`'s `name` is empty. |
 | `NonPositiveDielectricConstant` | 2 | A `Material`'s `dielectric_constant_e6` is not positive. |
 | `NegativeLossTangent` | 3 | A `Material`'s `loss_tangent_e6` is negative. |
-| `NonPositiveLayerThickness` | 4 | A `Layer`'s `thickness_nm` is not positive. |
+| `NonPositiveLayerThickness` | 4 | A `Layer`'s `thickness_nm` is not positive (never checked for an `EdgeCuts` layer, which has no z-height). |
 | `NegativeLayerRoughness` | 5 | A `Layer`'s `roughness_nm` is negative. |
 | `MissingDielectricMaterial` | 6 | A `Dielectric` `Layer`'s `material` is a null `EntityId`. |
 | `EmptyStackup` | 7 | A `LayerStack` has no member layers. |
@@ -243,6 +287,9 @@ referenced layer is flagged, not silently corrupted" guarantee.
 | `DanglingStackupLayerReference` | 11 | A `LayerStack` member does not resolve to any `Layer` in the snapshot. |
 | `DanglingLayerMaterialReference` | 12 | A `Layer`'s `material` does not resolve to any `Material` in the snapshot. |
 | `DanglingViaLayerReference` | 13 | A geometry `Via`'s `start_layer`/`end_layer` does not resolve to any `Layer` in the stackup snapshot. |
+| `NonPhysicalStackupLayerMember` | 14 | A `LayerStack` member resolves to an `EdgeCuts` (non-physical) `Layer`. |
+| `DanglingBoardOutlineLayerReference` | 15 | A geometry `BoardOutline`'s `layer` does not resolve to any `Layer` in the stackup snapshot. |
+| `BoardOutlineLayerWrongKind` | 16 | A geometry `BoardOutline`'s `layer` resolves to a `Layer` whose `kind` is not `EdgeCuts`. |
 
 ## Snapshot composition (root schema)
 

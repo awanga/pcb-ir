@@ -41,7 +41,8 @@ std::filesystem::path write_board_with_n_vias(int64_t count) {
                          .finished_hole_diameter_nm = 150000,
                          .pad_diameter_nm = 350000,
                          .start_layer = EntityId{1},
-                         .end_layer = EntityId{4}});
+                         .end_layer = EntityId{4},
+                         .pad_number = "1"});
   }
 
   BoardSnapshot board;

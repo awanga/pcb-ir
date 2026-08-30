@@ -47,6 +47,18 @@ TEST_CASE("A default-constructed Layer is Copper with a null material", "[stacku
   REQUIRE(layer.material.is_null());
 }
 
+TEST_CASE("An EdgeCuts layer is a non-physical, mechanical layer identity", "[stackup][entities]") {
+  const Layer outline_layer{.name = "Edge.Cuts",
+                            .kind = LayerKind::EdgeCuts,
+                            .thickness_nm = 0,
+                            .roughness_nm = 0,
+                            .material = EntityId{}};
+
+  REQUIRE(outline_layer.kind == LayerKind::EdgeCuts);
+  REQUIRE(outline_layer.thickness_nm == 0);
+  REQUIRE(outline_layer.material.is_null());
+}
+
 TEST_CASE("LayerStack preserves member ordering", "[stackup][entities]") {
   const LayerStack stack{.name = "4-layer", .layers = {EntityId{1}, EntityId{2}, EntityId{3}}};
 

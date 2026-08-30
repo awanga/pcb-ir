@@ -4,9 +4,11 @@
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/format_error.hpp"
 #include "pcbir/geometry/arc.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/drill_hit.hpp"
+#include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/keepout.hpp"
 #include "pcbir/geometry/layer_ref.hpp"
 #include "pcbir/geometry/mask_opening.hpp"
@@ -207,24 +209,27 @@ Polygon read_polygon(const fbs::Polygon* polygon) {
 flatbuffers::Offset<fbs::Pad> write_pad(flatbuffers::FlatBufferBuilder& builder, const Pad& pad) {
   const fbs::Point position = write_point(pad.position);
   const flatbuffers::Offset<fbs::Polygon> outline = write_polygon(builder, pad.outline);
-  return fbs::CreatePad(builder, &position, outline, pad.layer.value());
+  return fbs::CreatePadDirect(
+      builder, &position, outline, pad.layer.value(), pad.pad_number.c_str());
 }
 
 Pad read_pad(const fbs::Pad* pad) {
   return Pad{.position = read_point(pad->position()),
              .outline = read_polygon(pad->outline()),
-             .layer = LayerRef{pad->layer()}};
+             .layer = LayerRef{pad->layer()},
+             .pad_number = pad->pad_number() != nullptr ? pad->pad_number()->str() : std::string()};
 }
 
 flatbuffers::Offset<fbs::Via> write_via(flatbuffers::FlatBufferBuilder& builder, const Via& via) {
   const fbs::Point position = write_point(via.position);
-  return fbs::CreateVia(builder,
-                        &position,
-                        via.drill_diameter_nm,
-                        via.finished_hole_diameter_nm,
-                        via.pad_diameter_nm,
-                        via.start_layer.value(),
-                        via.end_layer.value());
+  return fbs::CreateViaDirect(builder,
+                              &position,
+                              via.drill_diameter_nm,
+                              via.finished_hole_diameter_nm,
+                              via.pad_diameter_nm,
+                              via.start_layer.value(),
+                              via.end_layer.value(),
+                              via.pad_number.c_str());
 }
 
 Via read_via(const fbs::Via* via) {
@@ -233,27 +238,32 @@ Via read_via(const fbs::Via* via) {
              .finished_hole_diameter_nm = via->finished_hole_diameter_nm(),
              .pad_diameter_nm = via->pad_diameter_nm(),
              .start_layer = LayerRef{via->start_layer()},
-             .end_layer = LayerRef{via->end_layer()}};
+             .end_layer = LayerRef{via->end_layer()},
+             .pad_number = via->pad_number() != nullptr ? via->pad_number()->str() : std::string()};
 }
 
 flatbuffers::Offset<fbs::Track> write_track(flatbuffers::FlatBufferBuilder& builder,
                                             const Track& track) {
   const flatbuffers::Offset<fbs::Path> path = write_path(builder, track.path);
-  return fbs::CreateTrack(builder, path, track.layer.value());
+  return fbs::CreateTrack(builder, path, track.layer.value(), track.net.value());
 }
 
 Track read_track(const fbs::Track* track) {
-  return Track{.path = read_path(track->path()), .layer = LayerRef{track->layer()}};
+  return Track{.path = read_path(track->path()),
+               .layer = LayerRef{track->layer()},
+               .net = core::EntityId{track->net()}};
 }
 
 flatbuffers::Offset<fbs::CopperPour> write_copper_pour(flatbuffers::FlatBufferBuilder& builder,
                                                        const CopperPour& pour) {
   const flatbuffers::Offset<fbs::Polygon> outline = write_polygon(builder, pour.outline);
-  return fbs::CreateCopperPour(builder, outline, pour.layer.value());
+  return fbs::CreateCopperPour(builder, outline, pour.layer.value(), pour.net.value());
 }
 
 CopperPour read_copper_pour(const fbs::CopperPour* pour) {
-  return CopperPour{.outline = read_polygon(pour->outline()), .layer = LayerRef{pour->layer()}};
+  return CopperPour{.outline = read_polygon(pour->outline()),
+                    .layer = LayerRef{pour->layer()},
+                    .net = core::EntityId{pour->net()}};
 }
 
 flatbuffers::Offset<fbs::Keepout> write_keepout(flatbuffers::FlatBufferBuilder& builder,
@@ -298,6 +308,73 @@ write_silkscreen_graphic(flatbuffers::FlatBufferBuilder& builder,
 
 SilkscreenGraphic read_silkscreen_graphic(const fbs::SilkscreenGraphic* graphic) {
   return SilkscreenGraphic{.path = read_path(graphic->path()), .layer = LayerRef{graphic->layer()}};
+}
+
+flatbuffers::Offset<fbs::Footprint> write_footprint(flatbuffers::FlatBufferBuilder& builder,
+                                                    const Footprint& footprint) {
+  const fbs::Point position = write_point(footprint.position);
+  const auto side =
+      footprint.side == FootprintSide::Top ? fbs::FootprintSide_Top : fbs::FootprintSide_Bottom;
+  std::vector<uint64_t> pads;
+  pads.reserve(footprint.pads.size());
+  for (const core::EntityId& pad : footprint.pads) {
+    pads.push_back(pad.value());
+  }
+  return fbs::CreateFootprintDirect(builder,
+                                    footprint.reference_designator.c_str(),
+                                    footprint.value.c_str(),
+                                    &position,
+                                    footprint.rotation_e6,
+                                    side,
+                                    &pads);
+}
+
+Footprint read_footprint(const fbs::Footprint* footprint) {
+  Footprint result{
+      .reference_designator = footprint->reference_designator() != nullptr
+                                  ? footprint->reference_designator()->str()
+                                  : std::string(),
+      .value = footprint->value() != nullptr ? footprint->value()->str() : std::string(),
+      .position = read_point(footprint->position()),
+      .rotation_e6 = footprint->rotation_e6(),
+      .side = footprint->side() == fbs::FootprintSide_Bottom ? FootprintSide::Bottom
+                                                             : FootprintSide::Top,
+      .pads = {},
+  };
+  if (const auto* pads = footprint->pads()) {
+    result.pads.reserve(pads->size());
+    for (const uint64_t pad : *pads) {
+      result.pads.emplace_back(pad);
+    }
+  }
+  return result;
+}
+
+flatbuffers::Offset<fbs::BoardOutline> write_board_outline(flatbuffers::FlatBufferBuilder& builder,
+                                                           const BoardOutline& outline) {
+  const flatbuffers::Offset<fbs::Polygon> polygon = write_polygon(builder, outline.outline);
+  return fbs::CreateBoardOutline(builder, polygon, outline.layer.value());
+}
+
+BoardOutline read_board_outline(const fbs::BoardOutline* outline) {
+  return BoardOutline{.outline = read_polygon(outline->outline()),
+                      .layer = LayerRef{outline->layer()}};
+}
+
+// Reads every entry of one component table (if present at all -- an empty
+// table is legitimately absent from the buffer, not an error) into
+// `workspace`, preserving each entry's original EntityId. Factored out of
+// deserialize_geometry() so that function stays one call per table rather
+// than one if+for block per table, which is what actually reads the
+// buffer's ten independent component tables.
+template <typename Entries, typename ReadFn>
+void insert_entries(GeometryWorkspace& workspace, const Entries* entries, ReadFn read) {
+  if (entries == nullptr) {
+    return;
+  }
+  for (const auto* entry : *entries) {
+    workspace.insert_with_id(read(entry->value()), core::EntityId{entry->id()});
+  }
 }
 
 } // namespace
@@ -351,6 +428,18 @@ std::vector<uint8_t> serialize(const GeometrySnapshot& snapshot) {
             builder, id.value(), write_silkscreen_graphic(builder, graphic)));
       });
 
+  std::vector<flatbuffers::Offset<fbs::FootprintEntry>> footprints;
+  snapshot.table<Footprint>().for_each([&](core::EntityId id, const Footprint& footprint) {
+    footprints.push_back(
+        fbs::CreateFootprintEntry(builder, id.value(), write_footprint(builder, footprint)));
+  });
+
+  std::vector<flatbuffers::Offset<fbs::BoardOutlineEntry>> board_outlines;
+  snapshot.table<BoardOutline>().for_each([&](core::EntityId id, const BoardOutline& outline) {
+    board_outlines.push_back(
+        fbs::CreateBoardOutlineEntry(builder, id.value(), write_board_outline(builder, outline)));
+  });
+
   const flatbuffers::Offset<fbs::GeometrySnapshot> root =
       fbs::CreateGeometrySnapshotDirect(builder,
                                         &pads,
@@ -360,7 +449,9 @@ std::vector<uint8_t> serialize(const GeometrySnapshot& snapshot) {
                                         &keepouts,
                                         &drill_hits,
                                         &mask_openings,
-                                        &silkscreen_graphics);
+                                        &silkscreen_graphics,
+                                        &footprints,
+                                        &board_outlines);
   builder.Finish(root);
 
   const uint8_t* buffer_ptr = builder.GetBufferPointer();
@@ -380,47 +471,16 @@ GeometryWorkspace deserialize_geometry(std::span<const uint8_t> buffer) {
   const fbs::GeometrySnapshot* snapshot = fbs::GetGeometrySnapshot(buffer.data());
   GeometryWorkspace workspace;
 
-  if (const auto* pads = snapshot->pads()) {
-    for (const fbs::PadEntry* entry : *pads) {
-      workspace.insert_with_id(read_pad(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* vias = snapshot->vias()) {
-    for (const fbs::ViaEntry* entry : *vias) {
-      workspace.insert_with_id(read_via(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* tracks = snapshot->tracks()) {
-    for (const fbs::TrackEntry* entry : *tracks) {
-      workspace.insert_with_id(read_track(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* copper_pours = snapshot->copper_pours()) {
-    for (const fbs::CopperPourEntry* entry : *copper_pours) {
-      workspace.insert_with_id(read_copper_pour(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* keepouts = snapshot->keepouts()) {
-    for (const fbs::KeepoutEntry* entry : *keepouts) {
-      workspace.insert_with_id(read_keepout(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* drill_hits = snapshot->drill_hits()) {
-    for (const fbs::DrillHitEntry* entry : *drill_hits) {
-      workspace.insert_with_id(read_drill_hit(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* mask_openings = snapshot->mask_openings()) {
-    for (const fbs::MaskOpeningEntry* entry : *mask_openings) {
-      workspace.insert_with_id(read_mask_opening(entry->value()), core::EntityId{entry->id()});
-    }
-  }
-  if (const auto* silkscreen_graphics = snapshot->silkscreen_graphics()) {
-    for (const fbs::SilkscreenGraphicEntry* entry : *silkscreen_graphics) {
-      workspace.insert_with_id(read_silkscreen_graphic(entry->value()),
-                               core::EntityId{entry->id()});
-    }
-  }
+  insert_entries(workspace, snapshot->pads(), read_pad);
+  insert_entries(workspace, snapshot->vias(), read_via);
+  insert_entries(workspace, snapshot->tracks(), read_track);
+  insert_entries(workspace, snapshot->copper_pours(), read_copper_pour);
+  insert_entries(workspace, snapshot->keepouts(), read_keepout);
+  insert_entries(workspace, snapshot->drill_hits(), read_drill_hit);
+  insert_entries(workspace, snapshot->mask_openings(), read_mask_opening);
+  insert_entries(workspace, snapshot->silkscreen_graphics(), read_silkscreen_graphic);
+  insert_entries(workspace, snapshot->footprints(), read_footprint);
+  insert_entries(workspace, snapshot->board_outlines(), read_board_outline);
 
   return workspace;
 }

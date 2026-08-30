@@ -4,8 +4,10 @@
 
 #include "pcbir/core/snapshot.hpp"
 #include "pcbir/core/workspace.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/drill_hit.hpp"
+#include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/keepout.hpp"
 #include "pcbir/geometry/mask_opening.hpp"
 #include "pcbir/geometry/pad.hpp"
@@ -24,10 +26,26 @@ namespace pcbir::geometry {
 // composed into the full board snapshot in a later phase; standalone here
 // so the geometry layer round-trips and is testable on its own
 // (schemas/geometry.fbs).
-using GeometrySnapshot =
-    core::Snapshot<Pad, Via, Track, CopperPour, Keepout, DrillHit, MaskOpening, SilkscreenGraphic>;
-using GeometryWorkspace =
-    core::Workspace<Pad, Via, Track, CopperPour, Keepout, DrillHit, MaskOpening, SilkscreenGraphic>;
+using GeometrySnapshot = core::Snapshot<Pad,
+                                        Via,
+                                        Track,
+                                        CopperPour,
+                                        Keepout,
+                                        DrillHit,
+                                        MaskOpening,
+                                        SilkscreenGraphic,
+                                        Footprint,
+                                        BoardOutline>;
+using GeometryWorkspace = core::Workspace<Pad,
+                                          Via,
+                                          Track,
+                                          CopperPour,
+                                          Keepout,
+                                          DrillHit,
+                                          MaskOpening,
+                                          SilkscreenGraphic,
+                                          Footprint,
+                                          BoardOutline>;
 
 // Serializes `snapshot` to a FlatBuffers buffer per schemas/geometry.fbs.
 // No FlatBuffers type appears in this signature -- the generated headers

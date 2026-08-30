@@ -42,11 +42,27 @@ Material read_material(const fbs::Material* material) {
 }
 
 fbs::LayerKind write_layer_kind(LayerKind kind) {
-  return kind == LayerKind::Copper ? fbs::LayerKind_Copper : fbs::LayerKind_Dielectric;
+  switch (kind) {
+  case LayerKind::Copper:
+    return fbs::LayerKind_Copper;
+  case LayerKind::Dielectric:
+    return fbs::LayerKind_Dielectric;
+  case LayerKind::EdgeCuts:
+    return fbs::LayerKind_EdgeCuts;
+  }
+  return fbs::LayerKind_Copper;
 }
 
 LayerKind read_layer_kind(fbs::LayerKind kind) {
-  return kind == fbs::LayerKind_Copper ? LayerKind::Copper : LayerKind::Dielectric;
+  switch (kind) {
+  case fbs::LayerKind_Copper:
+    return LayerKind::Copper;
+  case fbs::LayerKind_Dielectric:
+    return LayerKind::Dielectric;
+  case fbs::LayerKind_EdgeCuts:
+    return LayerKind::EdgeCuts;
+  }
+  return LayerKind::Copper;
 }
 
 flatbuffers::Offset<fbs::Layer> write_layer(flatbuffers::FlatBufferBuilder& builder,

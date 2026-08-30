@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/arc.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/drill_hit.hpp"
+#include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/keepout.hpp"
 #include "pcbir/geometry/layer_ref.hpp"
 #include "pcbir/geometry/mask_opening.hpp"
@@ -26,10 +28,13 @@
 using pcbir::core::EntityId;
 using pcbir::geometry::Arc;
 using pcbir::geometry::ArcDirection;
+using pcbir::geometry::BoardOutline;
 using pcbir::geometry::Contour;
 using pcbir::geometry::CopperPour;
 using pcbir::geometry::deserialize_geometry;
 using pcbir::geometry::DrillHit;
+using pcbir::geometry::Footprint;
+using pcbir::geometry::FootprintSide;
 using pcbir::geometry::GeometrySnapshot;
 using pcbir::geometry::GeometryWorkspace;
 using pcbir::geometry::Keepout;
@@ -79,22 +84,34 @@ Path make_path() {
 GeometrySnapshot build_sample_snapshot() {
   GeometryWorkspace workspace;
 
-  workspace.insert(Pad{.position = Point{.x = 100, .y = 200},
-                       .outline = make_triangle_polygon(),
-                       .layer = LayerRef{1}});
-  workspace.insert(Via{.position = Point{.x = 0, .y = 0},
-                       .drill_diameter_nm = 200000,
-                       .finished_hole_diameter_nm = 150000,
-                       .pad_diameter_nm = 350000,
-                       .start_layer = LayerRef{1},
-                       .end_layer = LayerRef{4}});
-  workspace.insert(Track{.path = make_path(), .layer = LayerRef{2}});
-  workspace.insert(CopperPour{.outline = make_triangle_polygon(), .layer = LayerRef{3}});
+  const auto pad = workspace.insert(Pad{.position = Point{.x = 100, .y = 200},
+                                        .outline = make_triangle_polygon(),
+                                        .layer = LayerRef{1},
+                                        .pad_number = "1"});
+  const EntityId pad_id = workspace.table<Pad>().id_of(pad);
+  const auto via = workspace.insert(Via{.position = Point{.x = 0, .y = 0},
+                                        .drill_diameter_nm = 200000,
+                                        .finished_hole_diameter_nm = 150000,
+                                        .pad_diameter_nm = 350000,
+                                        .start_layer = LayerRef{1},
+                                        .end_layer = LayerRef{4},
+                                        .pad_number = "2"});
+  const EntityId via_id = workspace.table<Via>().id_of(via);
+  workspace.insert(Track{.path = make_path(), .layer = LayerRef{2}, .net = EntityId{42}});
+  workspace.insert(
+      CopperPour{.outline = make_triangle_polygon(), .layer = LayerRef{3}, .net = EntityId{42}});
   workspace.insert(Keepout{.outline = make_triangle_polygon(), .layer = LayerRef{3}});
   workspace.insert(
       DrillHit{.position = Point{.x = 5, .y = 5}, .diameter_nm = 800000, .plated = true});
   workspace.insert(MaskOpening{.outline = make_triangle_polygon(), .layer = LayerRef{5}});
   workspace.insert(SilkscreenGraphic{.path = make_path(), .layer = LayerRef{6}});
+  workspace.insert(Footprint{.reference_designator = "U1",
+                             .value = "ATMEGA328P",
+                             .position = Point{.x = 1000000, .y = 2000000},
+                             .rotation_e6 = 90'000'000,
+                             .side = FootprintSide::Bottom,
+                             .pads = {pad_id, via_id}});
+  workspace.insert(BoardOutline{.outline = make_triangle_polygon(), .layer = LayerRef{7}});
 
   return workspace.commit();
 }
@@ -124,9 +141,12 @@ TEST_CASE("A geometry snapshot round-trip preserves every entity's count",
   REQUIRE(restored.table<DrillHit>().size() == original.table<DrillHit>().size());
   REQUIRE(restored.table<MaskOpening>().size() == original.table<MaskOpening>().size());
   REQUIRE(restored.table<SilkscreenGraphic>().size() == original.table<SilkscreenGraphic>().size());
+  REQUIRE(restored.table<Footprint>().size() == original.table<Footprint>().size());
+  REQUIRE(restored.table<BoardOutline>().size() == original.table<BoardOutline>().size());
 }
 
-TEST_CASE("A Pad round-trips its position, layer, and outline", "[geometry][serialize]") {
+TEST_CASE("A Pad round-trips its position, layer, outline, and pad number",
+          "[geometry][serialize]") {
   const GeometrySnapshot original = build_sample_snapshot();
   const GeometrySnapshot restored = round_trip(original);
 
@@ -137,10 +157,11 @@ TEST_CASE("A Pad round-trips its position, layer, and outline", "[geometry][seri
   REQUIRE(restored_pad != nullptr);
   REQUIRE(restored_pad->position == Point{.x = 100, .y = 200});
   REQUIRE(restored_pad->layer == LayerRef{1});
+  REQUIRE(restored_pad->pad_number == "1");
   REQUIRE(restored_pad->outline.outline.spans.size() == 3);
 }
 
-TEST_CASE("A Via round-trips every diameter and both layer references", "[geometry][serialize]") {
+TEST_CASE("A Via round-trips every diameter", "[geometry][serialize]") {
   const GeometrySnapshot original = build_sample_snapshot();
   const GeometrySnapshot restored = round_trip(original);
 
@@ -152,8 +173,86 @@ TEST_CASE("A Via round-trips every diameter and both layer references", "[geomet
   REQUIRE(restored_via->drill_diameter_nm == 200000);
   REQUIRE(restored_via->finished_hole_diameter_nm == 150000);
   REQUIRE(restored_via->pad_diameter_nm == 350000);
+}
+
+TEST_CASE("A Via round-trips both layer references and its pad number", "[geometry][serialize]") {
+  const GeometrySnapshot original = build_sample_snapshot();
+  const GeometrySnapshot restored = round_trip(original);
+
+  EntityId original_id;
+  original.table<Via>().for_each([&](EntityId id, const Via&) { original_id = id; });
+
+  const Via* restored_via = restored.table<Via>().try_get(restored.table<Via>().find(original_id));
+  REQUIRE(restored_via != nullptr);
   REQUIRE(restored_via->start_layer == LayerRef{1});
   REQUIRE(restored_via->end_layer == LayerRef{4});
+  REQUIRE(restored_via->pad_number == "2");
+}
+
+TEST_CASE("A Track and a CopperPour round-trip their optionally-claimed net",
+          "[geometry][serialize]") {
+  const GeometrySnapshot original = build_sample_snapshot();
+  const GeometrySnapshot restored = round_trip(original);
+
+  EntityId track_id;
+  original.table<Track>().for_each([&](EntityId id, const Track&) { track_id = id; });
+  const Track* restored_track =
+      restored.table<Track>().try_get(restored.table<Track>().find(track_id));
+  REQUIRE(restored_track != nullptr);
+  REQUIRE(restored_track->net == EntityId{42});
+
+  EntityId pour_id;
+  original.table<CopperPour>().for_each([&](EntityId id, const CopperPour&) { pour_id = id; });
+  const CopperPour* restored_pour =
+      restored.table<CopperPour>().try_get(restored.table<CopperPour>().find(pour_id));
+  REQUIRE(restored_pour != nullptr);
+  REQUIRE(restored_pour->net == EntityId{42});
+}
+
+TEST_CASE("A Footprint round-trips its reference designator, value, and member pads",
+          "[geometry][serialize]") {
+  const GeometrySnapshot original = build_sample_snapshot();
+  const GeometrySnapshot restored = round_trip(original);
+
+  EntityId footprint_id;
+  original.table<Footprint>().for_each([&](EntityId id, const Footprint&) { footprint_id = id; });
+
+  const Footprint* restored_footprint =
+      restored.table<Footprint>().try_get(restored.table<Footprint>().find(footprint_id));
+  REQUIRE(restored_footprint != nullptr);
+  REQUIRE(restored_footprint->reference_designator == "U1");
+  REQUIRE(restored_footprint->value == "ATMEGA328P");
+  REQUIRE(restored_footprint->pads.size() == 2);
+}
+
+TEST_CASE("A Footprint round-trips its placement and side", "[geometry][serialize]") {
+  const GeometrySnapshot original = build_sample_snapshot();
+  const GeometrySnapshot restored = round_trip(original);
+
+  EntityId footprint_id;
+  original.table<Footprint>().for_each([&](EntityId id, const Footprint&) { footprint_id = id; });
+
+  const Footprint* restored_footprint =
+      restored.table<Footprint>().try_get(restored.table<Footprint>().find(footprint_id));
+  REQUIRE(restored_footprint != nullptr);
+  REQUIRE(restored_footprint->position == Point{.x = 1000000, .y = 2000000});
+  REQUIRE(restored_footprint->rotation_e6 == 90'000'000);
+  REQUIRE(restored_footprint->side == FootprintSide::Bottom);
+}
+
+TEST_CASE("A BoardOutline round-trips its outline and layer", "[geometry][serialize]") {
+  const GeometrySnapshot original = build_sample_snapshot();
+  const GeometrySnapshot restored = round_trip(original);
+
+  EntityId outline_id;
+  original.table<BoardOutline>().for_each(
+      [&](EntityId id, const BoardOutline&) { outline_id = id; });
+
+  const BoardOutline* restored_outline =
+      restored.table<BoardOutline>().try_get(restored.table<BoardOutline>().find(outline_id));
+  REQUIRE(restored_outline != nullptr);
+  REQUIRE(restored_outline->layer == LayerRef{7});
+  REQUIRE(restored_outline->outline.outline.spans.size() == 3);
 }
 
 TEST_CASE("A Track round-trips a Path mixing segment and arc spans", "[geometry][serialize]") {

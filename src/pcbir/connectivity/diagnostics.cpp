@@ -8,6 +8,9 @@
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/arena.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/copper_pour.hpp"
+#include "pcbir/geometry/serialize.hpp"
+#include "pcbir/geometry/track.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -110,6 +113,29 @@ std::vector<Diagnostic> validate(const ConnectivitySnapshot& snapshot) {
         result.push_back(Diagnostic{.id = id, .code = DiagnosticCode::DanglingBusMember});
         break;
       }
+    }
+  });
+
+  return result;
+}
+
+std::vector<Diagnostic>
+validate_geometry_net_references(const geometry::GeometrySnapshot& geometry_snapshot,
+                                 const ConnectivitySnapshot& connectivity_snapshot) {
+  std::vector<Diagnostic> result;
+  const core::Arena<Net>& nets = connectivity_snapshot.table<Net>();
+
+  geometry_snapshot.table<geometry::Track>().for_each([&](core::EntityId id,
+                                                          const geometry::Track& track) {
+    if (!track.net.is_null() && nets.find(track.net).is_null()) {
+      result.push_back(Diagnostic{.id = id, .code = DiagnosticCode::DanglingGeometryNetReference});
+    }
+  });
+
+  geometry_snapshot.table<geometry::CopperPour>().for_each([&](core::EntityId id,
+                                                               const geometry::CopperPour& pour) {
+    if (!pour.net.is_null() && nets.find(pour.net).is_null()) {
+      result.push_back(Diagnostic{.id = id, .code = DiagnosticCode::DanglingGeometryNetReference});
     }
   });
 

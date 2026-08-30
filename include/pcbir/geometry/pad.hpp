@@ -6,6 +6,8 @@
 #include "pcbir/geometry/point.hpp"
 #include "pcbir/geometry/polygon.hpp"
 
+#include <string>
+
 namespace pcbir::geometry {
 
 // A component/footprint connection point: a copper shape on one layer, at
@@ -18,6 +20,12 @@ struct Pad {
   Point position;
   Polygon outline;
   LayerRef layer;
+
+  // The footprint-local pad identifier (e.g. "1", "A1") a Footprint's
+  // `pads` list orders but does not itself name -- needed since pad
+  // numbering is not generally sequential (e.g. a BGA's grid names). Empty
+  // is legitimate (some pads, e.g. mechanical/fiducial, carry no number).
+  std::string pad_number;
 };
 
 } // namespace pcbir::geometry

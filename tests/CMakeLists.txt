@@ -14,6 +14,7 @@ add_executable(pcbir_tests
   geometry/contour_test.cpp
   geometry/polygon_test.cpp
   geometry/path_test.cpp
+  geometry/rotate_test.cpp
   geometry/entities_test.cpp
   geometry/serialize_test.cpp
   geometry/boolean_test.cpp

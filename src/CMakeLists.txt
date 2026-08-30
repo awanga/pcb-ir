@@ -61,6 +61,7 @@ add_library(pcbir_core
   pcbir/geometry/contour.cpp
   pcbir/geometry/polygon.cpp
   pcbir/geometry/path.cpp
+  pcbir/geometry/rotate.cpp
   pcbir/geometry/serialize.cpp
   pcbir/geometry/boolean.cpp
   pcbir/geometry/spatial_index.cpp

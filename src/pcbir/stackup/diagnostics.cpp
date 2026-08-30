@@ -3,6 +3,7 @@
 
 #include "pcbir/core/arena.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/geometry/via.hpp"
 #include "pcbir/stackup/impedance_profile.hpp"
@@ -43,7 +44,10 @@ DiagnosticCode validate(const Material& material) {
 }
 
 DiagnosticCode validate(const Layer& layer) {
-  if (layer.thickness_nm <= 0) {
+  // EdgeCuts is a mechanical/drafting layer, not a physical one -- it has
+  // no z-height, so thickness_nm == 0 is its normal, expected value
+  // (stackup/layer.hpp), not a validation failure.
+  if (layer.kind != LayerKind::EdgeCuts && layer.thickness_nm <= 0) {
     return DiagnosticCode::NonPositiveLayerThickness;
   }
   if (layer.roughness_nm < 0) {
@@ -98,11 +102,20 @@ std::vector<Diagnostic> validate(const StackupSnapshot& snapshot) {
   });
 
   snapshot.table<LayerStack>().for_each([&](core::EntityId id, const LayerStack& stack) {
+    bool dangling_reported = false;
+    bool non_physical_reported = false;
     for (const core::EntityId& member : stack.layers) {
-      if (layers.find(member).is_null()) {
+      const Layer* member_layer = layers.try_get(layers.find(member));
+      if (member_layer == nullptr) {
+        if (!dangling_reported) {
+          result.push_back(
+              Diagnostic{.id = id, .code = DiagnosticCode::DanglingStackupLayerReference});
+          dangling_reported = true;
+        }
+      } else if (member_layer->kind == LayerKind::EdgeCuts && !non_physical_reported) {
         result.push_back(
-            Diagnostic{.id = id, .code = DiagnosticCode::DanglingStackupLayerReference});
-        break;
+            Diagnostic{.id = id, .code = DiagnosticCode::NonPhysicalStackupLayerMember});
+        non_physical_reported = true;
       }
     }
   });
@@ -111,8 +124,8 @@ std::vector<Diagnostic> validate(const StackupSnapshot& snapshot) {
 }
 
 std::vector<Diagnostic>
-validate_via_layer_references(const geometry::GeometrySnapshot& geometry_snapshot,
-                              const StackupSnapshot& stackup_snapshot) {
+validate_layer_references(const geometry::GeometrySnapshot& geometry_snapshot,
+                          const StackupSnapshot& stackup_snapshot) {
   std::vector<Diagnostic> result;
   const core::Arena<Layer>& layers = stackup_snapshot.table<Layer>();
 
@@ -123,6 +136,18 @@ validate_via_layer_references(const geometry::GeometrySnapshot& geometry_snapsho
         const bool end_dangling = !via.end_layer.is_null() && layers.find(via.end_layer).is_null();
         if (start_dangling || end_dangling) {
           result.push_back(Diagnostic{.id = id, .code = DiagnosticCode::DanglingViaLayerReference});
+        }
+      });
+
+  geometry_snapshot.table<geometry::BoardOutline>().for_each(
+      [&](core::EntityId id, const geometry::BoardOutline& outline) {
+        const Layer* layer = layers.try_get(layers.find(outline.layer));
+        if (layer == nullptr) {
+          result.push_back(
+              Diagnostic{.id = id, .code = DiagnosticCode::DanglingBoardOutlineLayerReference});
+        } else if (layer->kind != LayerKind::EdgeCuts) {
+          result.push_back(
+              Diagnostic{.id = id, .code = DiagnosticCode::BoardOutlineLayerWrongKind});
         }
       });
 
