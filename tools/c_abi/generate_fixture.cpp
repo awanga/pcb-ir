@@ -19,13 +19,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <ios>
 #include <iostream>
 #include <span>
 #include <vector>
 
-int main(int argc, char** argv) {
+namespace {
+
+int run(int argc, char** argv) {
   const std::span<char*> args(argv, static_cast<size_t>(argc));
   if (args.size() != 2) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
@@ -79,4 +82,15 @@ int main(int argc, char** argv) {
   file.write(reinterpret_cast<const char*>(bytes.data()),
              static_cast<std::streamsize>(bytes.size()));
   return file ? 0 : 1;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+  try {
+    return run(argc, argv);
+  } catch (const std::exception& error) {
+    std::cerr << "generate_fixture: " << error.what() << '\n';
+    return 1;
+  }
 }

@@ -45,7 +45,7 @@
  * copy of this header with no build system behind it still compiles, with
  * PCBIR_API expanding to nothing, which is correct for the static-only
  * linking this ships with today (docs/rfcs/0001-stable-c-abi.md). */
-#if defined(__has_include)
+#ifdef __has_include
 #if __has_include("pcbir_c_abi_export.h")
 #include "pcbir_c_abi_export.h"
 #endif
@@ -135,6 +135,7 @@ typedef uint8_t pcbir_layer_kind_t;
 enum {
   PCBIR_LAYER_KIND_COPPER = 0,
   PCBIR_LAYER_KIND_DIELECTRIC = 1,
+  PCBIR_LAYER_KIND_EDGE_CUTS = 2,
 };
 
 /* Mirrors pcbir::geometry::DiagnosticCode (include/pcbir/geometry/diagnostics.hpp). */

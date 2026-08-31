@@ -23,7 +23,7 @@ Handle<Via> to_cpp_handle(pcbir_via_handle_t handle) {
 }
 
 pcbir_via_handle_t to_c_handle(Handle<Via> handle) {
-  return {handle.index(), handle.generation()};
+  return {.index = handle.index(), .generation = handle.generation()};
 }
 
 const Via* resolve_via(const pcbir_geometry_snapshot_t* snapshot, pcbir_via_handle_t handle) {

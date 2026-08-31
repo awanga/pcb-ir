@@ -5,6 +5,7 @@
 #include "pcbir/serialize.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -17,7 +18,7 @@ using pcbir::geometry::deserialize_geometry;
 using pcbir::stackup::deserialize_stackup;
 
 namespace {
-const std::vector<uint8_t> GARBAGE_BUFFER = {
+constexpr std::array<uint8_t, 16> GARBAGE_BUFFER = {
     0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03, 0xFF, 0xFF, 0xFF, 0xFF, 0x10, 0x20, 0x30, 0x40};
 } // namespace
 

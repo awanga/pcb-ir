@@ -26,7 +26,7 @@ Handle<Material> to_cpp_handle(pcbir_material_handle_t handle) {
 }
 
 pcbir_material_handle_t to_c_handle(Handle<Material> handle) {
-  return {handle.index(), handle.generation()};
+  return {.index = handle.index(), .generation = handle.generation()};
 }
 
 Handle<Layer> to_cpp_handle(pcbir_layer_handle_t handle) {
@@ -34,7 +34,7 @@ Handle<Layer> to_cpp_handle(pcbir_layer_handle_t handle) {
 }
 
 pcbir_layer_handle_t to_c_handle(Handle<Layer> handle) {
-  return {handle.index(), handle.generation()};
+  return {.index = handle.index(), .generation = handle.generation()};
 }
 
 const Material* resolve_material(const pcbir_stackup_snapshot_t* snapshot,
@@ -47,7 +47,9 @@ const Layer* resolve_layer(const pcbir_stackup_snapshot_t* snapshot, pcbir_layer
 }
 
 pcbir_layer_kind_t to_c_layer_kind(LayerKind kind) {
-  return kind == LayerKind::Dielectric ? PCBIR_LAYER_KIND_DIELECTRIC : PCBIR_LAYER_KIND_COPPER;
+  static_assert(static_cast<int>(LayerKind::EdgeCuts) == PCBIR_LAYER_KIND_EDGE_CUTS,
+                "pcbir_layer_kind_t has drifted from pcbir::stackup::LayerKind");
+  return static_cast<pcbir_layer_kind_t>(kind);
 }
 
 pcbir_stackup_diagnostic_code_t to_c_diagnostic_code(pcbir::stackup::DiagnosticCode code) {

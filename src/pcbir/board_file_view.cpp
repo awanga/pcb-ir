@@ -167,6 +167,7 @@ BoardFileView& BoardFileView::operator=(BoardFileView&& other) noexcept {
 #else // POSIX
 
 BoardFileView BoardFileView::open(const std::filesystem::path& path, VerifyPolicy policy) {
+  // NOLINTNEXTLINE(misc-include-cleaner)
   const int file_descriptor = ::open(path.c_str(), O_RDONLY); // NOLINT(cppcoreguidelines-*)
   if (file_descriptor < 0) {
     throw std::system_error(

@@ -27,7 +27,7 @@ Handle<Net> to_cpp_handle(pcbir_net_handle_t handle) {
 }
 
 pcbir_net_handle_t to_c_handle(Handle<Net> handle) {
-  return {handle.index(), handle.generation()};
+  return {.index = handle.index(), .generation = handle.generation()};
 }
 
 Handle<Pin> to_cpp_handle(pcbir_pin_handle_t handle) {
@@ -35,7 +35,7 @@ Handle<Pin> to_cpp_handle(pcbir_pin_handle_t handle) {
 }
 
 pcbir_pin_handle_t to_c_handle(Handle<Pin> handle) {
-  return {handle.index(), handle.generation()};
+  return {.index = handle.index(), .generation = handle.generation()};
 }
 
 const Net* resolve_net(const pcbir_connectivity_snapshot_t* snapshot, pcbir_net_handle_t handle) {

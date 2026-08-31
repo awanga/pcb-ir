@@ -101,7 +101,7 @@ pcbir_board_save_bytes(const pcbir_board_t* board, uint8_t** out_data, size_t* o
     const std::vector<uint8_t> bytes = pcbir::serialize(board->snapshot);
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     auto* buffer = new uint8_t[bytes.size()];
-    std::copy(bytes.begin(), bytes.end(), buffer);
+    std::ranges::copy(bytes, buffer);
     *out_data = buffer;
     *out_size = bytes.size();
     return PCBIR_OK;

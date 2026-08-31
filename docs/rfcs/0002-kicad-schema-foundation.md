@@ -177,8 +177,11 @@ already-shipped fields, or meaning.
   needs any change to keep working; a board written before this RFC still deserializes
   correctly (`Footprint`/`BoardOutline` vectors default to empty, `pad_number` defaults to
   empty, `net` defaults to null).
-- **C ABI:** unaffected. `validate_via_layer_references`'s rename is a pure internal C++ change;
-  it is not, and has never been, exposed through `pcbir.h`.
+- **C ABI:** `validate_via_layer_references`'s rename is a pure internal C++ change; it is not,
+  and has never been, exposed through `pcbir.h`. The new `LayerKind::EdgeCuts` value does reach
+  the ABI via `pcbir_stackup_layer_kind()`: `pcbir_layer_kind_t` gained a matching
+  `PCBIR_LAYER_KIND_EDGE_CUTS` (additive; existing values unchanged) rather than silently
+  reporting an EdgeCuts layer as Copper.
 - **MCP service contracts:** unaffected (not yet built).
 
 ## Translation-fidelity impact
