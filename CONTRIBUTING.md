@@ -73,10 +73,15 @@ All of the following must pass before committing non-trivial changes (enforced i
 
 ```sh
 clang-format --dry-run -Werror $(git ls-files '*.c' '*.cc' '*.cpp' '*.h' '*.hpp')
-clang-tidy -p build/Release $(git ls-files '*.cpp' '*.cc')
+clang-tidy -p build/Release $(git ls-files '*.cpp' '*.cc' ':!:bench/*' ':!:fuzz/*')
 cmake --build --preset conan-release
 ctest --test-dir build/Release --output-on-failure
 ```
+
+`bench/` and `fuzz/` are excluded from that default sweep: they're opt-in targets built from
+their own separate build trees (see above), so `build/Release`'s compile database has no entry
+for them. Lint each against its own tree instead, e.g.
+`clang-tidy -p build/Bench/build/Release $(git ls-files 'bench/*.cpp')`.
 
 ## Style
 

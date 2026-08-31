@@ -53,7 +53,13 @@ jobs:
       - name: clang-tidy check
         shell: bash
         run: |
-          files=$(git ls-files '*.cpp' '*.cc')
+          # bench/ and fuzz/ are opt-in CMake targets (PCBIR_BUILD_BENCH,
+          # PCBIR_BUILD_FUZZ, default OFF) built from their own separate
+          # build trees (see CONTRIBUTING.md); this default build/Release
+          # compile database has no entry for them, so clang-tidy can't
+          # resolve their include paths here and must be pointed at the
+          # matching build tree instead.
+          files=$(git ls-files '*.cpp' '*.cc' ':!:bench/*' ':!:fuzz/*')
           [ -z "$files" ] || clang-tidy -p build/Release $files
 
       - name: ctest
