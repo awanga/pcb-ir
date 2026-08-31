@@ -56,8 +56,14 @@ void verify_mapped_buffer(const void* mapped, size_t size) {
 
 #ifdef _WIN32
 
+// windows.h is a single umbrella header for the whole Win32 API; misc-include-cleaner's
+// header-to-symbol mapping expects each type/constant/function below to come from its own
+// finer-grained SDK header instead, which would multiply this block's include list many times
+// over for no real benefit. Suppress the check for the whole Windows-only implementation
+// rather than one NOLINTNEXTLINE per symbol use.
+// NOLINTBEGIN(misc-include-cleaner)
+
 BoardFileView BoardFileView::open(const std::filesystem::path& path, VerifyPolicy policy) {
-  // NOLINTNEXTLINE(misc-include-cleaner)
   HANDLE file = CreateFileW(path.c_str(),
                             GENERIC_READ,
                             FILE_SHARE_READ,
@@ -163,6 +169,8 @@ BoardFileView& BoardFileView::operator=(BoardFileView&& other) noexcept {
   other.mapping_handle_ = nullptr;
   return *this;
 }
+
+// NOLINTEND(misc-include-cleaner)
 
 #else // POSIX
 

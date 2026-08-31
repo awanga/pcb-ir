@@ -86,11 +86,20 @@ int run(int argc, char** argv) {
 
 } // namespace
 
+// bugprone-exception-escape's static analysis traces a std::bad_cast frame through
+// std::ofstream::open()'s locale-facet lookup (MSVC's <fstream>/<xlocale>) that it cannot prove
+// is caught here, even though bad_cast derives from std::exception and both catch clauses below
+// are exhaustive. Verified by inspection, not by suppressing a real path: nothing in run() can
+// escape past a catch-all.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char** argv) {
   try {
     return run(argc, argv);
   } catch (const std::exception& error) {
     std::cerr << "generate_fixture: " << error.what() << '\n';
+    return 1;
+  } catch (...) {
+    std::cerr << "generate_fixture: unknown error\n";
     return 1;
   }
 }
