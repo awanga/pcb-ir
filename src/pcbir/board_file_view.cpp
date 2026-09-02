@@ -64,9 +64,13 @@ void verify_mapped_buffer(const void* mapped, size_t size) {
 // NOLINTBEGIN(misc-include-cleaner)
 
 BoardFileView BoardFileView::open(const std::filesystem::path& path, VerifyPolicy policy) {
+  // FILE_SHARE_DELETE matches POSIX unlink()'s delete-while-open semantics: without it,
+  // Windows refuses to delete or rename this file (even from this same process) for as long
+  // as this handle -- or the mapping opened from it below -- stays open, unlike every other
+  // platform this class supports.
   HANDLE file = CreateFileW(path.c_str(),
                             GENERIC_READ,
-                            FILE_SHARE_READ,
+                            FILE_SHARE_READ | FILE_SHARE_DELETE,
                             nullptr,
                             OPEN_EXISTING,
                             FILE_ATTRIBUTE_NORMAL,

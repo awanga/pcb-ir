@@ -66,10 +66,20 @@ set_tests_properties(c_abi_smoke_test PROPERTIES FIXTURES_REQUIRED c_abi_fixture
 
 # Cheap, precise header-hygiene gate, independent of whether the smoke test
 # happens to exercise every declaration: pcbir.h must compile as
-# self-contained C11 on its own.
-add_test(
-  NAME c_abi_header_is_valid_c
-  COMMAND ${CMAKE_C_COMPILER} -std=c11 -fsyntax-only -x c
-          -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/generated
-          ${CMAKE_SOURCE_DIR}/include/pcbir/pcbir.h
-)
+# self-contained C11 on its own. cl.exe understands none of GCC/Clang's
+# -std=/-fsyntax-only/-x c/-I spelling, so MSVC needs its own flag set.
+if(MSVC)
+  add_test(
+    NAME c_abi_header_is_valid_c
+    COMMAND ${CMAKE_C_COMPILER} /std:c11 /TC /Zs
+            /I${CMAKE_SOURCE_DIR}/include /I${CMAKE_BINARY_DIR}/generated
+            ${CMAKE_SOURCE_DIR}/include/pcbir/pcbir.h
+  )
+else()
+  add_test(
+    NAME c_abi_header_is_valid_c
+    COMMAND ${CMAKE_C_COMPILER} -std=c11 -fsyntax-only -x c
+            -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_BINARY_DIR}/generated
+            ${CMAKE_SOURCE_DIR}/include/pcbir/pcbir.h
+  )
+endif()
