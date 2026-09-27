@@ -23,6 +23,19 @@ namespace pcbir::kicad {
 // nanometres.
 [[nodiscard]] int64_t parse_mm_to_nm(std::string_view text);
 
+// Parses a KiCad-authored decimal degrees string (e.g. "45", "-30.5",
+// "0") into integer degrees * 1e6 -- the same fixed-point convention
+// Footprint::rotation_e6 (pcbir/geometry/footprint.hpp) and
+// geometry::rotate's angle_e6 parameter use. Shares parse_mm_to_nm's exact,
+// floating-point-free decimal parsing (KiCad's angle fields are written
+// with at most 6 fractional digits too, and 1 degree * 1e6 is the same
+// scale as 1 millimetre * 1e6 nanometres) but is kept as its own named
+// function since millimetres and degrees are not interchangeable units.
+//
+// Throws pcbir::kicad::ImportError on a malformed decimal string or a
+// value that would overflow int64_t.
+[[nodiscard]] int64_t parse_degrees_to_e6(std::string_view text);
+
 } // namespace pcbir::kicad
 
 #endif // PCBIR_KICAD_UNITS_HPP
