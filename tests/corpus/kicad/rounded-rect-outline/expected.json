@@ -1,0 +1,17 @@
+{
+  "source": "pcbnew 10.0.6 script, not hand-authored (docs/rfcs/0003-kicad-importer-exporter.md)",
+  "description": "2-layer board, no footprints/tracks/zones yet -- a rounded-rectangle Edge.Cuts outline (4 straight edges + 4 arc corners, authored out of loop order and in mixed directions) plus the standard KiCad layer table.",
+  "stackup": {
+    "copper_layer_count": 2,
+    "copper_layer_names_in_order": ["F.Cu", "B.Cu"],
+    "edge_cuts_layer_count": 1,
+    "silkscreen_layer_count": 2,
+    "layer_stack_count": 1,
+    "layer_stack_member_count": 2
+  },
+  "geometry": {
+    "board_outline_count": 1,
+    "board_outline_span_count": 8,
+    "board_outline_arc_span_count": 4
+  }
+}

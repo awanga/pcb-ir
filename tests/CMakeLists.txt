@@ -30,8 +30,12 @@ add_executable(pcbir_tests
   kicad/units_test.cpp
   kicad/import_test.cpp
   kicad/import_geometry_test.cpp
+  kicad/corpus_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
+target_compile_definitions(pcbir_tests PRIVATE
+  PCBIR_TEST_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus"
+)
 
 catch_discover_tests(pcbir_tests)
 
