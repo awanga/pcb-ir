@@ -72,6 +72,7 @@ add_library(pcbir_core
   pcbir/stackup/diagnostics.cpp
   pcbir/serialize.cpp
   pcbir/board_file_view.cpp
+  pcbir/kicad/sexpr.cpp
 )
 
 add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema pcbir_snapshot_schema)
