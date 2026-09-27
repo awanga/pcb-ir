@@ -31,12 +31,19 @@ add_executable(pcbir_tests
   kicad/import_test.cpp
   kicad/import_geometry_test.cpp
   kicad/import_nets_test.cpp
+  kicad/pad_shape_test.cpp
   kicad/corpus_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 target_compile_definitions(pcbir_tests PRIVATE
   PCBIR_TEST_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus"
 )
+# kicad/pad_shape_test.cpp directly unit-tests an internal helper
+# (src/pcbir/kicad/pad_shape.hpp, not part of the public API) since its
+# Arc-direction correctness isn't otherwise verifiable from
+# geometry::validate() alone (chord-based, so it can't distinguish a
+# minor-sweep arc from a wrong major-sweep one -- see that test file).
+target_include_directories(pcbir_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 catch_discover_tests(pcbir_tests)
 
