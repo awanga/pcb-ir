@@ -73,6 +73,7 @@ add_library(pcbir_core
   pcbir/serialize.cpp
   pcbir/board_file_view.cpp
   pcbir/kicad/sexpr.cpp
+  pcbir/kicad/units.cpp
   pcbir/kicad/import.cpp
 )
 
