@@ -29,6 +29,7 @@ add_executable(pcbir_tests
   kicad/sexpr_test.cpp
   kicad/units_test.cpp
   kicad/import_test.cpp
+  kicad/import_geometry_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 

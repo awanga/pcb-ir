@@ -8,13 +8,12 @@
 #include "pcbir/stackup/serialize.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <cstdint>
 #include <string>
-#include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
+
+#include "sexpr_util.hpp"
 
 namespace pcbir::kicad {
 
@@ -23,34 +22,6 @@ namespace {
 // See import.hpp -- KiCad's `(layers ...)` carries no thickness/material
 // data; this is the single most common real-board value (1oz copper).
 constexpr int64_t DEFAULT_COPPER_THICKNESS_NM = 35000;
-
-// Finds the first direct child of `list` that is itself a list whose own
-// first child is the Symbol `tag` -- KiCad's `(tag ...)` convention for
-// every named section (`(layers ...)`, `(setup ...)`, ...).
-[[nodiscard]] const SExpr* find_child(const SExpr& list, std::string_view tag) {
-  for (const SExpr& child : list.children) {
-    if (child.is_list() && !child.children.empty() && child.children.front().is_symbol() &&
-        child.children.front().text == tag) {
-      return &child;
-    }
-  }
-  return nullptr;
-}
-
-[[nodiscard]] int64_t parse_i64(const SExpr& symbol) {
-  const std::string& text = symbol.text;
-  int64_t value = 0;
-  // std::from_chars's interface is a [begin, end) pointer pair; there is no
-  // pointer-arithmetic-free way to name "one past the last character" of a
-  // std::string.
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  const char* end = text.data() + text.size();
-  const auto [ptr, ec] = std::from_chars(text.data(), end, value);
-  if (ec != std::errc{} || ptr != end) {
-    throw ImportError("expected an integer layer id, got '" + text + "'");
-  }
-  return value;
-}
 
 // One row of KiCad's `(layers ...)` list: `(id "name" type ["friendly"])`.
 // `id` is not itself tagged (unlike every other KiCad section), so this is
