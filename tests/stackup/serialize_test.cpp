@@ -32,6 +32,7 @@ struct SampleIds {
   EntityId copper_layer;
   EntityId core_layer;
   EntityId edge_cuts_layer;
+  EntityId silkscreen_layer;
   EntityId layer_stack;
   EntityId impedance_profile;
 };
@@ -69,6 +70,16 @@ StackupSnapshot build_sample_snapshot(SampleIds& ids) {
                                                 .roughness_nm = 0,
                                                 .material = EntityId{}});
   ids.edge_cuts_layer = workspace.table<Layer>().id_of(edge_cuts);
+
+  // Also not a member of the LayerStack above -- Silkscreen is likewise
+  // non-physical, only a SilkscreenGraphic reference target
+  // (docs/rfcs/0004-layerkind-silkscreen.md).
+  const auto silkscreen = workspace.insert(Layer{.name = "F.SilkS",
+                                                 .kind = LayerKind::Silkscreen,
+                                                 .thickness_nm = 0,
+                                                 .roughness_nm = 0,
+                                                 .material = EntityId{}});
+  ids.silkscreen_layer = workspace.table<Layer>().id_of(silkscreen);
 
   const auto profile = workspace.insert(ImpedanceProfile{
       .class_name = "USB_DIFF", .target_ohm_e6 = 90000000, .actual_ohm_e6 = 91200000});
@@ -142,6 +153,19 @@ TEST_CASE("An EdgeCuts Layer round-trips its kind and zero thickness", "[stackup
   REQUIRE(restored_edge_cuts->kind == LayerKind::EdgeCuts);
   REQUIRE(restored_edge_cuts->thickness_nm == 0);
   REQUIRE(restored_edge_cuts->material.is_null());
+}
+
+TEST_CASE("A Silkscreen Layer round-trips its kind and zero thickness", "[stackup][serialize]") {
+  SampleIds ids;
+  const StackupSnapshot original = build_sample_snapshot(ids);
+  const StackupSnapshot restored = round_trip(original);
+
+  const Layer* restored_silkscreen =
+      restored.table<Layer>().try_get(restored.table<Layer>().find(ids.silkscreen_layer));
+  REQUIRE(restored_silkscreen != nullptr);
+  REQUIRE(restored_silkscreen->kind == LayerKind::Silkscreen);
+  REQUIRE(restored_silkscreen->thickness_nm == 0);
+  REQUIRE(restored_silkscreen->material.is_null());
 }
 
 TEST_CASE("A LayerStack round-trips its member ordering", "[stackup][serialize]") {

@@ -49,6 +49,8 @@ const Layer* resolve_layer(const pcbir_stackup_snapshot_t* snapshot, pcbir_layer
 pcbir_layer_kind_t to_c_layer_kind(LayerKind kind) {
   static_assert(static_cast<int>(LayerKind::EdgeCuts) == PCBIR_LAYER_KIND_EDGE_CUTS,
                 "pcbir_layer_kind_t has drifted from pcbir::stackup::LayerKind");
+  static_assert(static_cast<int>(LayerKind::Silkscreen) == PCBIR_LAYER_KIND_SILKSCREEN,
+                "pcbir_layer_kind_t has drifted from pcbir::stackup::LayerKind");
   return static_cast<pcbir_layer_kind_t>(kind);
 }
 

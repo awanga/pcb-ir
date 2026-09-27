@@ -136,6 +136,7 @@ enum {
   PCBIR_LAYER_KIND_COPPER = 0,
   PCBIR_LAYER_KIND_DIELECTRIC = 1,
   PCBIR_LAYER_KIND_EDGE_CUTS = 2,
+  PCBIR_LAYER_KIND_SILKSCREEN = 3,
 };
 
 /* Mirrors pcbir::geometry::DiagnosticCode (include/pcbir/geometry/diagnostics.hpp). */

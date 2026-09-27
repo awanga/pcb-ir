@@ -120,6 +120,15 @@ TEST_CASE("Layer validation treats zero thickness as valid for an EdgeCuts layer
                          .material = EntityId{}}) == DiagnosticCode::NonPositiveLayerThickness);
 }
 
+TEST_CASE("Layer validation treats zero thickness as valid for a Silkscreen layer",
+          "[stackup][diagnostics]") {
+  REQUIRE(validate(Layer{.name = "F.SilkS",
+                         .kind = LayerKind::Silkscreen,
+                         .thickness_nm = 0,
+                         .roughness_nm = 0,
+                         .material = EntityId{}}) == DiagnosticCode::Valid);
+}
+
 TEST_CASE("Validating a snapshot flags a LayerStack member that is a non-physical EdgeCuts layer",
           "[stackup][diagnostics]") {
   StackupWorkspace workspace;
@@ -130,6 +139,23 @@ TEST_CASE("Validating a snapshot flags a LayerStack member that is a non-physica
                                                 .material = EntityId{}});
   const EntityId edge_cuts_id = workspace.table<Layer>().id_of(edge_cuts);
   const auto stack = workspace.insert(LayerStack{.name = "bad", .layers = {edge_cuts_id}});
+  const EntityId stack_id = workspace.table<LayerStack>().id_of(stack);
+
+  const std::vector<Diagnostic> diagnostics = validate(workspace.commit());
+  REQUIRE(has(diagnostics, stack_id, DiagnosticCode::NonPhysicalStackupLayerMember));
+}
+
+TEST_CASE("Validating a snapshot flags a LayerStack member that is a non-physical Silkscreen "
+          "layer",
+          "[stackup][diagnostics]") {
+  StackupWorkspace workspace;
+  const auto silkscreen = workspace.insert(Layer{.name = "F.SilkS",
+                                                 .kind = LayerKind::Silkscreen,
+                                                 .thickness_nm = 0,
+                                                 .roughness_nm = 0,
+                                                 .material = EntityId{}});
+  const EntityId silkscreen_id = workspace.table<Layer>().id_of(silkscreen);
+  const auto stack = workspace.insert(LayerStack{.name = "bad", .layers = {silkscreen_id}});
   const EntityId stack_id = workspace.table<LayerStack>().id_of(stack);
 
   const std::vector<Diagnostic> diagnostics = validate(workspace.commit());

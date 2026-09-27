@@ -225,14 +225,18 @@ pay for it.
   same as every other length field in the format.
 - `Material` carries a `name` plus the two fixed-point constants above. It is referenced by a
   `Layer`, never embedded, so the same material can back more than one layer.
-- `Layer` is one layer in the board's layer-identity space: a `kind` (`Copper`, `Dielectric`, or
-  `EdgeCuts`), `thickness_nm`, `roughness_nm` (copper foil profile; unused for `Dielectric`/
-  `EdgeCuts`), and a `material` reference (the owning `Material`'s `EntityId`; meaningful, and
-  required, only for a `Dielectric` layer). Only `Copper`/`Dielectric` are physical layers in
-  the board's cross-section (participate in `LayerStack` below); `EdgeCuts` is not physical --
-  it is the mechanical/drafting layer identity a geometry `BoardOutline` references, carrying
-  no thickness/material of its own (`thickness_nm == 0` is `EdgeCuts`'s normal, valid value, not
-  a validation failure -- see Stackup diagnostic codes below).
+- `Layer` is one layer in the board's layer-identity space: a `kind` (`Copper`, `Dielectric`,
+  `EdgeCuts`, or `Silkscreen`), `thickness_nm`, `roughness_nm` (copper foil profile; unused for
+  `Dielectric`/`EdgeCuts`/`Silkscreen`), and a `material` reference (the owning `Material`'s
+  `EntityId`; meaningful, and required, only for a `Dielectric` layer). Only `Copper`/
+  `Dielectric` are physical layers in the board's cross-section (participate in `LayerStack`
+  below); `EdgeCuts`/`Silkscreen` are not physical -- they are the mechanical/drafting and
+  silkscreen layer identities a geometry `BoardOutline`/`SilkscreenGraphic` respectively
+  reference (`docs/rfcs/0004-layerkind-silkscreen.md`), carrying no thickness/material of their
+  own (`thickness_nm == 0` is their normal, valid value, not a validation failure -- see
+  Stackup diagnostic codes below). Side (front/back) is carried by `Layer.name`
+  (e.g. `"F.SilkS"`/`"B.SilkS"`), the same convention `Copper`'s `"F.Cu"`/`"B.Cu"` already uses,
+  not by `LayerKind` itself.
 - `LayerStack` is the board's physical stackup: a `name` and an ordered, top-to-bottom `layers`
   list of `Layer` `EntityId`s. Order is significant (physical build-up order, and which copper
   layers are adjacent determines valid blind/buried via spans) and is preserved on round-trip,
@@ -277,7 +281,7 @@ one that resolves to a real `Layer` that isn't `kind == EdgeCuts`.
 | `EmptyMaterialName` | 1 | A `Material`'s `name` is empty. |
 | `NonPositiveDielectricConstant` | 2 | A `Material`'s `dielectric_constant_e6` is not positive. |
 | `NegativeLossTangent` | 3 | A `Material`'s `loss_tangent_e6` is negative. |
-| `NonPositiveLayerThickness` | 4 | A `Layer`'s `thickness_nm` is not positive (never checked for an `EdgeCuts` layer, which has no z-height). |
+| `NonPositiveLayerThickness` | 4 | A `Layer`'s `thickness_nm` is not positive (never checked for an `EdgeCuts`/`Silkscreen` layer, neither of which has a z-height). |
 | `NegativeLayerRoughness` | 5 | A `Layer`'s `roughness_nm` is negative. |
 | `MissingDielectricMaterial` | 6 | A `Dielectric` `Layer`'s `material` is a null `EntityId`. |
 | `EmptyStackup` | 7 | A `LayerStack` has no member layers. |
@@ -287,7 +291,7 @@ one that resolves to a real `Layer` that isn't `kind == EdgeCuts`.
 | `DanglingStackupLayerReference` | 11 | A `LayerStack` member does not resolve to any `Layer` in the snapshot. |
 | `DanglingLayerMaterialReference` | 12 | A `Layer`'s `material` does not resolve to any `Material` in the snapshot. |
 | `DanglingViaLayerReference` | 13 | A geometry `Via`'s `start_layer`/`end_layer` does not resolve to any `Layer` in the stackup snapshot. |
-| `NonPhysicalStackupLayerMember` | 14 | A `LayerStack` member resolves to an `EdgeCuts` (non-physical) `Layer`. |
+| `NonPhysicalStackupLayerMember` | 14 | A `LayerStack` member resolves to an `EdgeCuts`/`Silkscreen` (non-physical) `Layer`. |
 | `DanglingBoardOutlineLayerReference` | 15 | A geometry `BoardOutline`'s `layer` does not resolve to any `Layer` in the stackup snapshot. |
 | `BoardOutlineLayerWrongKind` | 16 | A geometry `BoardOutline`'s `layer` resolves to a `Layer` whose `kind` is not `EdgeCuts`. |
 

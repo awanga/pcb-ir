@@ -18,9 +18,11 @@ table Material {
 }
 
 // EdgeCuts is not a physical layer -- it is the mechanical/drafting layer a
-// board outline (geometry.fbs BoardOutline) references. Only Copper/
+// board outline (geometry.fbs BoardOutline) references. Silkscreen is
+// likewise non-physical -- the layer identity a geometry SilkscreenGraphic
+// references (docs/rfcs/0004-layerkind-silkscreen.md). Only Copper/
 // Dielectric participate in the physical stackup (LayerStack).
-enum LayerKind:ubyte { Copper, Dielectric, EdgeCuts }
+enum LayerKind:ubyte { Copper, Dielectric, EdgeCuts, Silkscreen }
 
 // One layer in the board's layer-identity space. Only Copper/Dielectric are
 // physical layers in the board's cross-section. `material` is the owning

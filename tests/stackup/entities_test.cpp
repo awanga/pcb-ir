@@ -59,6 +59,18 @@ TEST_CASE("An EdgeCuts layer is a non-physical, mechanical layer identity", "[st
   REQUIRE(outline_layer.material.is_null());
 }
 
+TEST_CASE("A Silkscreen layer is a non-physical layer identity", "[stackup][entities]") {
+  const Layer silkscreen_layer{.name = "F.SilkS",
+                               .kind = LayerKind::Silkscreen,
+                               .thickness_nm = 0,
+                               .roughness_nm = 0,
+                               .material = EntityId{}};
+
+  REQUIRE(silkscreen_layer.kind == LayerKind::Silkscreen);
+  REQUIRE(silkscreen_layer.thickness_nm == 0);
+  REQUIRE(silkscreen_layer.material.is_null());
+}
+
 TEST_CASE("LayerStack preserves member ordering", "[stackup][entities]") {
   const LayerStack stack{.name = "4-layer", .layers = {EntityId{1}, EntityId{2}, EntityId{3}}};
 

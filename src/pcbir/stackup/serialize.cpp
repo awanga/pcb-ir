@@ -49,6 +49,8 @@ fbs::LayerKind write_layer_kind(LayerKind kind) {
     return fbs::LayerKind_Dielectric;
   case LayerKind::EdgeCuts:
     return fbs::LayerKind_EdgeCuts;
+  case LayerKind::Silkscreen:
+    return fbs::LayerKind_Silkscreen;
   }
   return fbs::LayerKind_Copper;
 }
@@ -61,6 +63,8 @@ LayerKind read_layer_kind(fbs::LayerKind kind) {
     return LayerKind::Dielectric;
   case fbs::LayerKind_EdgeCuts:
     return LayerKind::EdgeCuts;
+  case fbs::LayerKind_Silkscreen:
+    return LayerKind::Silkscreen;
   }
   return LayerKind::Copper;
 }

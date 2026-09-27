@@ -19,6 +19,13 @@ namespace pcbir::stackup {
 
 namespace {
 
+// EdgeCuts/Silkscreen are the layer-identity space's non-physical members
+// (docs/rfcs/0004-layerkind-silkscreen.md) -- neither carries a z-height or
+// belongs in a physical LayerStack.
+[[nodiscard]] bool is_non_physical(LayerKind kind) {
+  return kind == LayerKind::EdgeCuts || kind == LayerKind::Silkscreen;
+}
+
 template <typename T> void collect(const StackupSnapshot& snapshot, std::vector<Diagnostic>& out) {
   snapshot.template table<T>().for_each([&out](core::EntityId id, const T& entity) {
     const DiagnosticCode code = validate(entity);
@@ -44,10 +51,10 @@ DiagnosticCode validate(const Material& material) {
 }
 
 DiagnosticCode validate(const Layer& layer) {
-  // EdgeCuts is a mechanical/drafting layer, not a physical one -- it has
-  // no z-height, so thickness_nm == 0 is its normal, expected value
-  // (stackup/layer.hpp), not a validation failure.
-  if (layer.kind != LayerKind::EdgeCuts && layer.thickness_nm <= 0) {
+  // EdgeCuts/Silkscreen are non-physical -- neither has a z-height, so
+  // thickness_nm == 0 is their normal, expected value (stackup/layer.hpp),
+  // not a validation failure.
+  if (!is_non_physical(layer.kind) && layer.thickness_nm <= 0) {
     return DiagnosticCode::NonPositiveLayerThickness;
   }
   if (layer.roughness_nm < 0) {
@@ -112,7 +119,7 @@ std::vector<Diagnostic> validate(const StackupSnapshot& snapshot) {
               Diagnostic{.id = id, .code = DiagnosticCode::DanglingStackupLayerReference});
           dangling_reported = true;
         }
-      } else if (member_layer->kind == LayerKind::EdgeCuts && !non_physical_reported) {
+      } else if (is_non_physical(member_layer->kind) && !non_physical_reported) {
         result.push_back(
             Diagnostic{.id = id, .code = DiagnosticCode::NonPhysicalStackupLayerMember});
         non_physical_reported = true;

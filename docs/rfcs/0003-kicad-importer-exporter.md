@@ -231,16 +231,24 @@ the entities the schema foundation added support for, and no more:
 (`(layers ...)` → `stackup::Layer`/`LayerStack`), footprints with SMD pads and though-hole
 pads-as-`Via` (`(footprint ...)`/`(pad ...)` → `Footprint`/`Pad`/`Via`), tracks and arcs
 (`(segment ...)`/`(arc ...)` → `Track`), free-standing vias (`(via ...)` → `Via`), copper
-zones/pours (`(zone ...)` → `CopperPour`), nets (as established above), and basic
-silkscreen graphics already covered by `SilkscreenGraphic`.
+zones/pours (`(zone ...)` → `CopperPour`), and nets (as established above).
 
 **Explicitly out of scope for this pass** (reported as **Unsupported**, not silently
 dropped): rule areas/keepout zones beyond the existing `Keepout` shape, dimension objects,
 3D model references, group objects, design rules (`(setup ... constraints)`), net classes,
 and any KiCad-specific pad shape this RFC's extension mechanism doesn't yet enumerate
-(e.g. custom-shape pads with primitive lists). Each is a candidate for a later, additive
-pass — none requires a schema change to add later, since `Keepout`/`SilkscreenGraphic`
-already exist and net classes/design rules are Phase 12's eventual concern.
+(e.g. custom-shape pads with primitive lists). **Also moved out of scope during
+implementation** (correcting this RFC's original draft, which listed it as in-scope):
+silkscreen graphics (`(gr_line ...)`/`(fp_text ...)` on `F.SilkS`/`B.SilkS` → geometry's
+existing `SilkscreenGraphic`). Implementing this exposed a real gap `stackup::LayerKind`
+doesn't cover — `{Copper, Dielectric, EdgeCuts}` has no non-physical layer identity for
+`F.SilkS`/`B.SilkS` the way `EdgeCuts` covers `Edge.Cuts` — and adding one, while small and
+directly precedented by RFC 0002's own `EdgeCuts` addition, is still a schema change
+requiring its own elevated approval rather than being decided silently mid-implementation.
+It's deferred to a small, narrowly-scoped follow-up RFC once the schema-change-free core
+above lands. Each of these is a candidate for a later, additive pass — none requires a
+breaking schema change, since `Keepout`/`SilkscreenGraphic` already exist and net
+classes/design rules are Phase 12's eventual concern.
 
 ### Round-trip fidelity harness
 
