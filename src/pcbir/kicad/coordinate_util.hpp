@@ -2,6 +2,8 @@
 #ifndef PCBIR_KICAD_COORDINATE_UTIL_HPP
 #define PCBIR_KICAD_COORDINATE_UTIL_HPP
 
+#include "pcbir/connectivity/net.hpp"
+#include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/contour.hpp"
@@ -17,9 +19,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <numbers>
 #include <string>
 #include <variant>
+
+#include "sexpr_util.hpp"
 
 // Internal geometry-conversion helpers shared by every importer piece that
 // places KiCad coordinates/angles/layer references (import_geometry.cpp,
@@ -205,6 +210,57 @@ namespace pcbir::kicad {
     }
   });
   return result;
+}
+
+// Finds the stackup Layer a node's own `(layer "NAME")` child (a track
+// segment/arc's, a zone's, a free via's single-layer field -- not the
+// multi-layer `(layers ...)` a pad/via-as-pad uses, see
+// resolve_via_layer_span in import_footprint.cpp) refers to.
+[[nodiscard]] inline core::EntityId
+resolve_required_layer(const SExpr& node, const stackup::StackupSnapshot& stackup) {
+  const SExpr* layer_node = find_child(node, "layer");
+  if (layer_node == nullptr || layer_node->children.size() < 2) {
+    throw ImportError("malformed entry: missing (layer \"NAME\")");
+  }
+  const core::EntityId id = find_layer_id_by_name(stackup, layer_node->children.at(1).text);
+  if (id.is_null()) {
+    throw ImportError("entry references an unrecognized layer '" + layer_node->children.at(1).text +
+                      "'");
+  }
+  return id;
+}
+
+// A name -> EntityId index over every Net in `nets`, built once so
+// resolve_optional_net can look up a `(net "NAME")` reference in O(log n)
+// per pad/track/via/zone rather than re-scanning the whole Net table each
+// time.
+[[nodiscard]] inline std::map<std::string, core::EntityId>
+build_net_index(const connectivity::ConnectivitySnapshot& nets) {
+  std::map<std::string, core::EntityId> index;
+  nets.table<connectivity::Net>().for_each(
+      [&](core::EntityId id, const connectivity::Net& net) { index.emplace(net.name, id); });
+  return index;
+}
+
+// `node`'s own `(net "NAME")` child resolved against `net_index`, or a
+// null EntityId for an unconnected entity (no such child at all -- KiCad
+// omits it entirely rather than writing a placeholder, verified against
+// real pcbnew output). Every name present must already be in `net_index`
+// since import_nets scans the same tree for every `(net "NAME")`
+// occurrence up front; a name that isn't found means the caller passed a
+// `nets` snapshot built from different input than `node` came from.
+[[nodiscard]] inline core::EntityId
+resolve_optional_net(const SExpr& node, const std::map<std::string, core::EntityId>& net_index) {
+  const SExpr* net_node = find_child(node, "net");
+  if (net_node == nullptr || net_node->children.size() < 2) {
+    return core::EntityId{};
+  }
+  const auto it = net_index.find(net_node->children.at(1).text);
+  if (it == net_index.end()) {
+    throw ImportError("entry references net '" + net_node->children.at(1).text +
+                      "' that import_nets did not find");
+  }
+  return it->second;
 }
 
 } // namespace pcbir::kicad

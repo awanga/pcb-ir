@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/kicad/import_footprint.hpp"
 
-#include "pcbir/connectivity/net.hpp"
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
@@ -56,25 +55,6 @@ using geometry::Polygon;
     }
   }
   return "";
-}
-
-// A pad/via's `(net "NAME")` child, or a null EntityId for an unconnected
-// pad (no such child at all -- KiCad omits it entirely rather than
-// writing a placeholder, verified against real pcbnew output). Every name
-// present must already be in `net_index` since import_nets scans the same
-// tree for every `(net "NAME")` occurrence up front.
-[[nodiscard]] core::EntityId
-resolve_pad_net(const SExpr& pad_or_via, const std::map<std::string, core::EntityId>& net_index) {
-  const SExpr* net_node = find_child(pad_or_via, "net");
-  if (net_node == nullptr || net_node->children.size() < 2) {
-    return core::EntityId{};
-  }
-  const auto it = net_index.find(net_node->children.at(1).text);
-  if (it == net_index.end()) {
-    throw ImportError("pad/via references net '" + net_node->children.at(1).text +
-                      "' that import_nets did not find");
-  }
-  return it->second;
 }
 
 [[nodiscard]] const stackup::LayerStack&
@@ -232,7 +212,7 @@ import_pad(const SExpr& pad,
   const std::string& pad_type = pad.children.at(2).text;
   const AbsolutePlacement placement =
       resolve_absolute_placement(pad, footprint_position, footprint_rotation_e6);
-  const core::EntityId net_id = resolve_pad_net(pad, net_index);
+  const core::EntityId net_id = resolve_optional_net(pad, net_index);
 
   core::EntityId entity_id;
   if (pad_type == "smd" || pad_type == "connect") {
@@ -281,14 +261,6 @@ import_pad(const SExpr& pad,
 
   connectivity_workspace.insert(connectivity::Pin{.pad = entity_id, .net = net_id});
   return entity_id;
-}
-
-[[nodiscard]] std::map<std::string, core::EntityId>
-build_net_index(const connectivity::ConnectivitySnapshot& nets) {
-  std::map<std::string, core::EntityId> index;
-  nets.table<connectivity::Net>().for_each(
-      [&](core::EntityId id, const connectivity::Net& net) { index.emplace(net.name, id); });
-  return index;
 }
 
 } // namespace
