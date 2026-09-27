@@ -27,6 +27,7 @@ add_executable(pcbir_tests
   stackup/serialize_test.cpp
   stackup/diagnostics_test.cpp
   kicad/sexpr_test.cpp
+  kicad/import_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 
