@@ -6,6 +6,7 @@
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/point.hpp"
+#include "pcbir/geometry/polygon.hpp"
 #include "pcbir/geometry/segment.hpp"
 #include "pcbir/kicad/import.hpp"
 #include "pcbir/kicad/sexpr.hpp"
@@ -102,14 +103,23 @@ namespace pcbir::kicad {
 // point at local (+X, 0) to absolute (0, -X), which is what
 // geometry::rotate produces only for an angle of -90
 // (docs/rfcs/0003-kicad-importer-exporter.md). Every KiCad-stored angle
-// (footprint orientation, pad/via local delta) uses this same convention,
-// so every caller that feeds an angle to geometry::rotate must negate it
-// exactly once, here.
+// (a footprint's own orientation, or a pad/via's own -- both are written
+// as fully-resolved absolute angles, verified against real pcbnew output;
+// a pad's stored angle never needs its parent footprint's angle added)
+// uses this same convention, so every caller that feeds an angle to
+// geometry::rotate must negate it exactly once, here. The result is
+// normalized to [0, 360_000_000) so every caller sees a canonical range
+// regardless of the sign of the value KiCad wrote.
 [[nodiscard]] inline int64_t parse_kicad_rotation_e6(const SExpr& at_node) {
   if (at_node.children.size() < 4) {
     return 0;
   }
-  return -parse_degrees_to_e6(at_node.children.at(3).text);
+  constexpr int64_t degrees_e6_per_full_turn = 360'000'000;
+  int64_t angle_e6 = -parse_degrees_to_e6(at_node.children.at(3).text) % degrees_e6_per_full_turn;
+  if (angle_e6 < 0) {
+    angle_e6 += degrees_e6_per_full_turn;
+  }
+  return angle_e6;
 }
 
 // Reverses a Span's direction of travel (swaps a Segment's endpoints, or
@@ -143,6 +153,44 @@ namespace pcbir::kicad {
     }
   }
   return contour;
+}
+
+// Translates every point of `span` by `delta`, without changing its shape
+// (a rotated-then-translated pad/via outline is built by rotating a
+// pad-local, origin-centered shape in place via geometry::rotate and then
+// translating the result to its final absolute position with this).
+[[nodiscard]] inline geometry::Span translate(const geometry::Span& span,
+                                              const geometry::Point& delta) {
+  if (const auto* segment = std::get_if<geometry::Segment>(&span)) {
+    return geometry::Span{
+        geometry::Segment{.start = segment->start + delta, .end = segment->end + delta}};
+  }
+  const auto& arc = std::get<geometry::Arc>(span);
+  return geometry::Span{geometry::Arc{.start = arc.start + delta,
+                                      .end = arc.end + delta,
+                                      .center = arc.center + delta,
+                                      .direction = arc.direction}};
+}
+
+[[nodiscard]] inline geometry::Contour translate(const geometry::Contour& contour,
+                                                 const geometry::Point& delta) {
+  geometry::Contour result;
+  result.spans.reserve(contour.spans.size());
+  for (const geometry::Span& span : contour.spans) {
+    result.spans.push_back(translate(span, delta));
+  }
+  return result;
+}
+
+[[nodiscard]] inline geometry::Polygon translate(const geometry::Polygon& polygon,
+                                                 const geometry::Point& delta) {
+  geometry::Polygon result;
+  result.outline = translate(polygon.outline, delta);
+  result.holes.reserve(polygon.holes.size());
+  for (const geometry::Contour& hole : polygon.holes) {
+    result.holes.push_back(translate(hole, delta));
+  }
+  return result;
 }
 
 // Finds the stackup Layer whose name is exactly `name`, or a null EntityId

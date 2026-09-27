@@ -36,6 +36,17 @@ namespace pcbir::kicad {
 // value that would overflow int64_t.
 [[nodiscard]] int64_t parse_degrees_to_e6(std::string_view text);
 
+// Parses a KiCad-authored dimensionless decimal ratio (e.g. a pad's
+// `roundrect_rratio`, "0.25") into a fixed-point value scaled by 1e6,
+// sharing parse_mm_to_nm's exact decimal-parsing arithmetic for the same
+// "no floating point" reason -- a ratio applied to an already-integer
+// nanometre dimension (e.g. a roundrect corner radius) should not
+// introduce platform-dependent rounding differences either.
+//
+// Throws pcbir::kicad::ImportError on a malformed decimal string or a
+// value that would overflow int64_t.
+[[nodiscard]] int64_t parse_ratio_to_e6(std::string_view text);
+
 } // namespace pcbir::kicad
 
 #endif // PCBIR_KICAD_UNITS_HPP

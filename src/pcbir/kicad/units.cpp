@@ -115,4 +115,8 @@ int64_t parse_degrees_to_e6(std::string_view text) {
   return parse_decimal_e6(text, "degree");
 }
 
+int64_t parse_ratio_to_e6(std::string_view text) {
+  return parse_decimal_e6(text, "ratio");
+}
+
 } // namespace pcbir::kicad
