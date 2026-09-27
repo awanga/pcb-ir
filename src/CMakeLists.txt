@@ -76,6 +76,7 @@ add_library(pcbir_core
   pcbir/kicad/units.cpp
   pcbir/kicad/import.cpp
   pcbir/kicad/import_geometry.cpp
+  pcbir/kicad/import_nets.cpp
 )
 
 add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema pcbir_snapshot_schema)
