@@ -301,14 +301,28 @@ resolve_via_layer_span(const stackup::StackupSnapshot& stackup,
                        const std::vector<std::string>& layer_names) {
   const stackup::LayerStack& stack = require_layer_stack(stackup);
 
-  if (layer_names.size() == 1 && layer_names.front() == "*.Cu") {
+  // A via/thru-hole pad's (layers ...) also lists non-copper layers --
+  // verified against real pcbnew output: a thru-hole pad with mask
+  // clearance on both sides writes (layers "*.Cu" "*.Mask"), collapsing
+  // matching F./B. pairs into a wildcard the same way "*.Cu" itself
+  // does. Only the copper entry (or entries) determine start_layer/
+  // end_layer; everything else is irrelevant to this function.
+  std::vector<std::string> copper_names;
+  for (const std::string& name : layer_names) {
+    if (name == "*.Cu" || name.ends_with(".Cu")) {
+      copper_names.push_back(name);
+    }
+  }
+
+  if (copper_names.size() == 1 && copper_names.front() == "*.Cu") {
     return {stack.layers.front(), stack.layers.back()};
   }
-  if (layer_names.size() < 2) {
-    throw ImportError("malformed via/thru-hole pad (layers ...): expected \"*.Cu\" or 2 names");
+  if (copper_names.size() < 2) {
+    throw ImportError(
+        "malformed via/thru-hole pad (layers ...): expected \"*.Cu\" or 2 copper layer names");
   }
-  const core::EntityId first = find_layer_id_by_name(stackup, layer_names.at(0));
-  const core::EntityId second = find_layer_id_by_name(stackup, layer_names.at(1));
+  const core::EntityId first = find_layer_id_by_name(stackup, copper_names.at(0));
+  const core::EntityId second = find_layer_id_by_name(stackup, copper_names.at(1));
   if (first.is_null() || second.is_null()) {
     throw ImportError("via/thru-hole pad references an unrecognized copper layer");
   }

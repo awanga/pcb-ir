@@ -24,6 +24,7 @@ using pcbir::connectivity::ConnectivitySnapshot;
 using pcbir::connectivity::Net;
 using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
+using pcbir::kicad::FootprintImportResult;
 using pcbir::kicad::import_footprints;
 using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
@@ -205,6 +206,31 @@ TEST_CASE("import_footprints imports a thru_hole pad as a Via spanning every cop
   REQUIRE_FALSE(via2.start_layer.is_null());
   REQUIRE_FALSE(via2.end_layer.is_null());
   REQUIRE_FALSE(via2.start_layer == via2.end_layer);
+}
+
+TEST_CASE("import_footprints resolves a thru_hole pad whose (layers ...) also lists "
+          "non-copper wildcard entries",
+          "[kicad][import]") {
+  // Real pcbnew output for a plated through-hole pad with mask clearance
+  // on both sides writes (layers "*.Cu" "*.Mask") -- resolve_via_layer_
+  // span (coordinate_util.hpp) must pick out just the copper entry, not
+  // treat "*.Mask" as a second copper layer name to resolve.
+  const SExpr root = parse_sexpr(
+      R"((kicad_pcb (layers (0 "F.Cu" signal) (2 "B.Cu" signal))
+           (footprint "" (layer "F.Cu") (at 0 0)
+             (pad "1" thru_hole circle (at 0 0) (size 1 1) (drill 0.6)
+               (layers "*.Cu" "*.Mask")))))");
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const FootprintImportResult result = import_footprints(root, stackup, nets);
+
+  REQUIRE(result.geometry.table<Via>().size() == 1);
+  const Via* via = nullptr;
+  result.geometry.table<Via>().for_each([&](EntityId, const Via& candidate) { via = &candidate; });
+  REQUIRE(via != nullptr);
+  REQUIRE_FALSE(via->start_layer.is_null());
+  REQUIRE_FALSE(via->end_layer.is_null());
+  REQUIRE_FALSE(via->start_layer == via->end_layer);
 }
 
 TEST_CASE("import_footprints links each pad/via to its net via a Pin, null for no net",
