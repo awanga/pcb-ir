@@ -3,13 +3,17 @@
 #define PCBIR_KICAD_COORDINATE_UTIL_HPP
 
 #include "pcbir/connectivity/net.hpp"
+#include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/arc.hpp"
+#include "pcbir/geometry/boolean.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/point.hpp"
 #include "pcbir/geometry/polygon.hpp"
+#include "pcbir/geometry/rotate.hpp"
 #include "pcbir/geometry/segment.hpp"
+#include "pcbir/kicad/export.hpp"
 #include "pcbir/kicad/import.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/kicad/units.hpp"
@@ -23,11 +27,13 @@
 #include <cstdint>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "sexpr_build.hpp"
 #include "sexpr_util.hpp"
 
 // Internal geometry-conversion helpers shared by every importer piece that
@@ -113,7 +119,22 @@ namespace pcbir::kicad {
 // contract as kicad_three_point_arc_to_pcbir and geometry::rotate's
 // non-90-degree fallback -- an arc's true midpoint is not exactly
 // representable in integer coordinates in general.
-[[nodiscard]] inline geometry::Point arc_three_point_mid(const geometry::Arc& arc) {
+// An arc's shape/travel, resolved once in double precision and shared by
+// every function below that needs to place a point somewhere along its
+// sweep -- radius/start_angle/end_angle are the raw circle parameters;
+// `sweep` is the *signed*, direction-aware angular travel from start to
+// end (positive for CounterClockwise, negative for Clockwise, magnitude
+// in (0, 2*pi]) so a caller can linearly interpolate along it without
+// re-deriving which of the two arcs `direction` picked.
+struct ArcSweep {
+  double center_x = 0.0;
+  double center_y = 0.0;
+  double radius = 0.0;
+  double start_angle = 0.0;
+  double sweep = 0.0;
+};
+
+[[nodiscard]] inline ArcSweep resolve_arc_sweep(const geometry::Arc& arc) {
   const auto center_x = static_cast<double>(arc.center.x);
   const auto center_y = static_cast<double>(arc.center.y);
   const double start_x = static_cast<double>(arc.start.x) - center_x;
@@ -137,10 +158,49 @@ namespace pcbir::kicad {
     }
   }
 
-  const double mid_angle = start_angle + (sweep / 2.0);
+  return ArcSweep{.center_x = center_x,
+                  .center_y = center_y,
+                  .radius = radius,
+                  .start_angle = start_angle,
+                  .sweep = sweep};
+}
+
+[[nodiscard]] inline geometry::Point point_on_arc(const ArcSweep& sweep, double angle) {
   return geometry::Point{
-      .x = static_cast<int64_t>(std::llround(center_x + (radius * std::cos(mid_angle)))),
-      .y = static_cast<int64_t>(std::llround(center_y + (radius * std::sin(mid_angle))))};
+      .x = static_cast<int64_t>(std::llround(sweep.center_x + (sweep.radius * std::cos(angle)))),
+      .y = static_cast<int64_t>(std::llround(sweep.center_y + (sweep.radius * std::sin(angle))))};
+}
+
+[[nodiscard]] inline geometry::Point arc_three_point_mid(const geometry::Arc& arc) {
+  const ArcSweep sweep = resolve_arc_sweep(arc);
+  return point_on_arc(sweep, sweep.start_angle + (sweep.sweep / 2.0));
+}
+
+// Approximates `arc` as a sequence of straight chords, for KiCad entities
+// (a custom pad's `(primitives (gr_poly ...))`) that support only
+// straight-edge points -- the same documented best-effort approximation
+// geometry::boolean_op already uses at the Clipper2 boundary, sharing its
+// ARC_FLATTEN_SEGMENTS_PER_FULL_TURN density constant so both places
+// approximate curves at the same resolution. Returns `segments` points
+// starting exactly at `arc.start` and ending just short of `arc.end` (the
+// caller supplies `arc.end` itself, e.g. as the next span's own start, the
+// same convention export_zone_polygon's plain-Segment handling already
+// follows for a closed Contour).
+[[nodiscard]] inline std::vector<geometry::Point> flatten_arc(const geometry::Arc& arc) {
+  const ArcSweep sweep = resolve_arc_sweep(arc);
+  constexpr double two_pi = 2.0 * std::numbers::pi;
+  const int segments =
+      std::max(1,
+               static_cast<int>(std::llround((std::abs(sweep.sweep) / two_pi) *
+                                             geometry::ARC_FLATTEN_SEGMENTS_PER_FULL_TURN)));
+
+  std::vector<geometry::Point> points;
+  points.reserve(static_cast<std::size_t>(segments));
+  for (int i = 0; i < segments; ++i) {
+    const double angle = sweep.start_angle + (sweep.sweep * (static_cast<double>(i) / segments));
+    points.push_back(point_on_arc(sweep, angle));
+  }
+  return points;
 }
 
 // Parses an optional trailing rotation field (a `(at x y [ANGLE])` node's
@@ -380,6 +440,98 @@ resolve_optional_net(const SExpr& node, const std::map<std::string, core::Entity
                       "' that import_nets did not find");
   }
   return it->second;
+}
+
+// The exporter's counterpart to find_layer_id_by_name: `stackup`'s Layer
+// entity for `id`, or a thrown ExportError (pcbir/kicad/export.hpp) if
+// `id` doesn't resolve -- shared by every exporter piece that emits a
+// `(layer "NAME")`/`(layers "A" "B")` field from a stored LayerRef.
+[[nodiscard]] inline const stackup::Layer& require_layer(const stackup::StackupSnapshot& stackup,
+                                                         core::EntityId id) {
+  const auto& layers = stackup.table<stackup::Layer>();
+  const stackup::Layer* layer = layers.try_get(layers.find(id));
+  if (layer == nullptr) {
+    throw ExportError("entity references a layer id not present in this stackup");
+  }
+  return *layer;
+}
+
+// `net_id`, resolved to its Net's own `(net "NAME")` field, or
+// std::nullopt for a null (unassigned) net -- KiCad itself never writes a
+// placeholder for an unclaimed net, so callers omit the field entirely in
+// that case. Shared by every exporter piece that emits a claimed-net
+// field (Track/Via/CopperPour/Pad).
+[[nodiscard]] inline std::optional<SExpr> net_field(const connectivity::ConnectivitySnapshot& nets,
+                                                    core::EntityId net_id) {
+  if (net_id.is_null()) {
+    return std::nullopt;
+  }
+  const auto& net_table = nets.table<connectivity::Net>();
+  const connectivity::Net* net = net_table.try_get(net_table.find(net_id));
+  if (net == nullptr) {
+    throw ExportError("entity references a net id not present in this connectivity snapshot");
+  }
+  return tagged("net", {str(net->name)});
+}
+
+// Appends `maybe_node` to `children` if present -- the common pattern
+// every exporter piece uses for an optional `(net ...)` field.
+inline void push_if_present(std::vector<SExpr>& children, std::optional<SExpr> maybe_node) {
+  if (maybe_node.has_value()) {
+    children.push_back(std::move(*maybe_node));
+  }
+}
+
+// Via/Pad (unlike Track/CopperPour) carry no net field of their own --
+// geometry/via.hpp, geometry/pad.hpp -- a claimed net lives only in the
+// connectivity layer, via the connectivity::Pin whose `pad` is the
+// Via/Pad's own EntityId. Indexed once so export_vias/export_footprints
+// don't rescan the whole Pin table per entity.
+[[nodiscard]] inline std::map<core::EntityId::ValueType, core::EntityId>
+build_pin_net_index(const connectivity::ConnectivitySnapshot& nets) {
+  std::map<core::EntityId::ValueType, core::EntityId> index;
+  nets.table<connectivity::Pin>().for_each(
+      [&](core::EntityId, const connectivity::Pin& pin) { index[pin.pad.value()] = pin.net; });
+  return index;
+}
+
+// The exporter's inverse of resolve_absolute_placement's position formula
+// (import_footprint.cpp): recovers the footprint-local offset that placed
+// `absolute` at its current board position, given the owning Footprint's
+// own `position`/`rotation_e6` -- geometry::rotate's own mathematical
+// inverse (rotating by the negated angle undoes a rotation by that angle)
+// is exact for 90-degree-multiple angles and the same documented
+// best-effort float approximation otherwise that rotate() itself already
+// documents. Verified numerically against real pcbnew output (a rotated
+// footprint's pad position round-trips exactly through this inversion),
+// side-agnostic like resolve_absolute_placement itself -- the mirror
+// rule's flip transform isn't needed here since PCB-IR's Pad/Via already
+// store final resolved absolute geometry, the same reason import doesn't
+// need it either (docs/rfcs/0003-kicad-importer-exporter.md).
+[[nodiscard]] inline geometry::Point
+footprint_local_point(const geometry::Point& absolute,
+                      const geometry::Point& footprint_position,
+                      int64_t footprint_rotation_e6) {
+  return geometry::rotate(
+      absolute - footprint_position, geometry::Point{.x = 0, .y = 0}, -footprint_rotation_e6);
+}
+
+// The exporter's inverse of parse_kicad_rotation_e6: converts a PCB-IR
+// counterclockwise-positive rotation back to KiCad's clockwise-positive
+// stored convention, or std::nullopt for an exact 0-degree rotation --
+// KiCad omits the (at ...) node's angle field entirely in that case
+// (parse_kicad_rotation_e6's own doc comment), so the exporter matches
+// that instead of always writing "0".
+[[nodiscard]] inline std::optional<int64_t> format_kicad_rotation_e6(int64_t our_rotation_e6) {
+  constexpr int64_t degrees_e6_per_full_turn = 360'000'000;
+  int64_t kicad_e6 = -our_rotation_e6 % degrees_e6_per_full_turn;
+  if (kicad_e6 < 0) {
+    kicad_e6 += degrees_e6_per_full_turn;
+  }
+  if (kicad_e6 == 0) {
+    return std::nullopt;
+  }
+  return kicad_e6;
 }
 
 } // namespace pcbir::kicad

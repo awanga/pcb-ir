@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/kicad/export.hpp"
 
-#include "pcbir/connectivity/net.hpp"
-#include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/arc.hpp"
@@ -190,38 +188,6 @@ std::vector<SExpr> export_board_outline(const geometry::GeometrySnapshot& geomet
 
 namespace {
 
-[[nodiscard]] const stackup::Layer& require_layer(const stackup::StackupSnapshot& stackup,
-                                                  core::EntityId id) {
-  const auto& layers = stackup.table<stackup::Layer>();
-  const stackup::Layer* layer = layers.try_get(layers.find(id));
-  if (layer == nullptr) {
-    throw ExportError("entity references a layer id not present in this stackup");
-  }
-  return *layer;
-}
-
-// `net_id`, resolved to its Net's own `(net "NAME")` field, or std::nullopt
-// for a null (unassigned) net -- KiCad itself never writes a placeholder
-// for an unclaimed net, so callers omit the field entirely in that case.
-[[nodiscard]] std::optional<SExpr> net_field(const connectivity::ConnectivitySnapshot& nets,
-                                             core::EntityId net_id) {
-  if (net_id.is_null()) {
-    return std::nullopt;
-  }
-  const auto& net_table = nets.table<connectivity::Net>();
-  const connectivity::Net* net = net_table.try_get(net_table.find(net_id));
-  if (net == nullptr) {
-    throw ExportError("entity references a net id not present in this connectivity snapshot");
-  }
-  return tagged("net", {str(net->name)});
-}
-
-void push_if_present(std::vector<SExpr>& children, std::optional<SExpr> maybe_node) {
-  if (maybe_node.has_value()) {
-    children.push_back(std::move(*maybe_node));
-  }
-}
-
 [[nodiscard]] SExpr export_track_span(const geometry::WidthSpan& width_span,
                                       const stackup::Layer& layer,
                                       std::optional<SExpr> net,
@@ -266,20 +232,6 @@ std::vector<SExpr> export_tracks(const geometry::GeometrySnapshot& geometry,
 }
 
 namespace {
-
-// Via (unlike Track/CopperPour) carries no net field of its own --
-// geometry/via.hpp -- a Via's claimed net lives only in the connectivity
-// layer, via the connectivity::Pin whose `pad` is this Via's own
-// EntityId (created by import_via.cpp/import_footprint.cpp's thru-hole
-// pad handling). Indexed once so export_vias doesn't rescan the whole Pin
-// table per via.
-[[nodiscard]] std::map<core::EntityId::ValueType, core::EntityId>
-build_pin_net_index(const connectivity::ConnectivitySnapshot& nets) {
-  std::map<core::EntityId::ValueType, core::EntityId> index;
-  nets.table<connectivity::Pin>().for_each(
-      [&](core::EntityId, const connectivity::Pin& pin) { index[pin.pad.value()] = pin.net; });
-  return index;
-}
 
 [[nodiscard]] std::unordered_set<core::EntityId::ValueType>
 collect_footprint_owned_ids(const geometry::GeometrySnapshot& geometry) {
