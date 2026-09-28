@@ -5,11 +5,13 @@
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/checked_arith.hpp"
+#include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/pad.hpp"
 #include "pcbir/geometry/point.hpp"
 #include "pcbir/geometry/polygon.hpp"
 #include "pcbir/geometry/rotate.hpp"
+#include "pcbir/geometry/segment.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/geometry/via.hpp"
 #include "pcbir/kicad/import.hpp"
@@ -63,9 +65,55 @@ using geometry::Polygon;
   if (text == "trapezoid") {
     return KicadPadShape::Trapezoid;
   }
-  // "custom" (primitive-list-defined) pads are explicitly out of scope
-  // for this pass (docs/rfcs/0003-kicad-importer-exporter.md).
+  // "custom" pads (primitive-list-defined) don't go through this
+  // parametric-shape path at all -- see parse_custom_pad_outline below,
+  // called directly by import_pad for shape == "custom" before this
+  // function would ever be reached with that text.
   throw ImportError("unsupported KiCad pad shape: '" + text + "'");
+}
+
+// A `custom` pad's local (pad-anchor-relative, unrotated-by-the-pad's-own-
+// angle) outline, parsed from its `(primitives (gr_poly (pts ...)) ...)`
+// -- the counterpart to build_pad_outline (pad_shape.hpp) for the one
+// shape that isn't a fixed parametric primitive. Real KiCad custom pads
+// can combine several primitives of several kinds (gr_poly/gr_line/
+// gr_arc/gr_rect/gr_circle); this pass supports only the single-gr_poly
+// case (docs/rfcs/0003-kicad-importer-exporter.md's exporter always emits
+// exactly that -- see export_footprint.cpp), so a custom pad built any
+// other way is Unsupported and throws, not silently approximated.
+[[nodiscard]] Polygon parse_custom_pad_outline(const SExpr& pad) {
+  const SExpr* primitives_node = find_child(pad, "primitives");
+  if (primitives_node == nullptr) {
+    throw ImportError("malformed custom (pad ...): missing (primitives ...)");
+  }
+  const std::vector<const SExpr*> polygons = find_all_children(*primitives_node, "gr_poly");
+  if (polygons.size() != 1) {
+    throw ImportError("unsupported custom (pad ...): expected exactly one (gr_poly ...) primitive");
+  }
+  const SExpr* pts_node = find_child(*polygons.front(), "pts");
+  if (pts_node == nullptr || pts_node->children.size() < 4) {
+    throw ImportError("malformed (gr_poly ...): (pts ...) needs at least 3 points");
+  }
+
+  std::vector<Point> points;
+  points.reserve(pts_node->children.size() - 1);
+  for (std::size_t i = 1; i < pts_node->children.size(); ++i) {
+    const SExpr& entry = pts_node->children.at(i);
+    if (!entry.is_list() || entry.children.empty() || !entry.children.front().is_symbol() ||
+        entry.children.front().text != "xy") {
+      throw ImportError("unsupported (gr_poly ...) (pts ...) entry: expected only (xy X Y)");
+    }
+    points.push_back(parse_coordinate_pair(entry));
+  }
+
+  std::vector<geometry::Span> spans;
+  spans.reserve(points.size());
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    spans.emplace_back(
+        geometry::Segment{.start = points.at(i), .end = points.at((i + 1) % points.size())});
+  }
+  return Polygon{.outline = canonicalize_winding(geometry::Contour{.spans = std::move(spans)}),
+                 .holes = {}};
 }
 
 [[nodiscard]] PadShapeParams parse_pad_shape_params(const SExpr& pad, KicadPadShape shape) {
@@ -160,9 +208,11 @@ import_pad(const SExpr& pad,
 
   core::EntityId entity_id;
   if (pad_type == "smd" || pad_type == "connect") {
-    const KicadPadShape shape = parse_pad_shape_kind(pad.children.at(3).text);
-    const PadShapeParams shape_params = parse_pad_shape_params(pad, shape);
-    const Polygon local_outline = build_pad_outline(shape_params);
+    const std::string& shape_text = pad.children.at(3).text;
+    const Polygon local_outline =
+        (shape_text == "custom")
+            ? parse_custom_pad_outline(pad)
+            : build_pad_outline(parse_pad_shape_params(pad, parse_pad_shape_kind(shape_text)));
     const Polygon absolute_outline =
         translate(geometry::rotate(local_outline, Point{.x = 0, .y = 0}, placement.rotation_e6),
                   placement.center);

@@ -274,13 +274,48 @@ TEST_CASE("import_footprints applies the footprint's own rotation to a pad's pos
   REQUIRE(pad->position.y == 5'000'000);
 }
 
-TEST_CASE("import_footprints rejects a custom pad shape", "[kicad][import]") {
+TEST_CASE("import_footprints rejects a custom pad shape missing (primitives ...)",
+          "[kicad][import]") {
   const SExpr root = parse_sexpr(
       R"((kicad_pcb (layers (0 "F.Cu" signal)) (footprint "" (layer "F.Cu") (at 0 0)
            (pad "1" smd custom (at 0 0) (size 1 1) (layers "F.Cu")))))");
   const StackupSnapshot stackup = import_stackup(root);
   const ConnectivitySnapshot nets = import_nets(root);
   REQUIRE_THROWS_AS(import_footprints(root, stackup, nets), ImportError);
+}
+
+TEST_CASE("import_footprints rejects a custom pad with more than one primitive",
+          "[kicad][import]") {
+  const SExpr root = parse_sexpr(
+      R"((kicad_pcb (layers (0 "F.Cu" signal)) (footprint "" (layer "F.Cu") (at 0 0)
+           (pad "1" smd custom (at 0 0) (size 1 1) (layers "F.Cu")
+             (primitives
+               (gr_poly (pts (xy 0 0) (xy 1 0) (xy 1 1)) (width 0))
+               (gr_poly (pts (xy -1 -1) (xy -1 0) (xy 0 -1)) (width 0)))))))");
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  REQUIRE_THROWS_AS(import_footprints(root, stackup, nets), ImportError);
+}
+
+TEST_CASE("import_footprints imports a custom pad's single gr_poly primitive as its outline",
+          "[kicad][import]") {
+  const SExpr root = parse_sexpr(
+      R"((kicad_pcb (layers (0 "F.Cu" signal)) (footprint "" (layer "F.Cu") (at 10 5)
+           (pad "1" smd custom (at 2 1) (size 0.5 0.5) (layers "F.Cu")
+             (primitives
+               (gr_poly (pts (xy -0.8 -0.6) (xy 0.8 -0.6) (xy 0.8 0.6) (xy -0.8 0.6)) (width 0)))))))");
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const FootprintImportResult result = import_footprints(root, stackup, nets);
+
+  REQUIRE(result.geometry.table<Pad>().size() == 1);
+  const Pad* pad = nullptr;
+  result.geometry.table<Pad>().for_each([&](EntityId, const Pad& candidate) { pad = &candidate; });
+  REQUIRE(pad != nullptr);
+  REQUIRE(pad->position.x == 12'000'000);
+  REQUIRE(pad->position.y == 6'000'000);
+  REQUIRE(pcbir::geometry::validate(pad->outline) == pcbir::geometry::PolygonValidity::Valid);
+  REQUIRE(pad->outline.outline.spans.size() == 4);
 }
 
 TEST_CASE("import_footprints rejects an unrecognized pad type", "[kicad][import]") {

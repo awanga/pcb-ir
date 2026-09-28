@@ -39,8 +39,13 @@ struct FootprintImportResult {
 // rule -- load-bearing for the exporter, not needed here since PCB-IR's
 // Pad/Via already store final resolved absolute geometry). A pad's
 // parametric shape (rect/circle/oval/roundrect/trapezoid) is converted to
-// a concrete outline via build_pad_outline (pad_shape.hpp); `custom`
-// (primitive-list) pads are Unsupported for this pass and throw
+// a concrete outline via build_pad_outline (pad_shape.hpp). A `custom`
+// pad is supported only in the single-`(gr_poly (pts ...))`-primitive
+// form the exporter itself emits (export_footprint.cpp, since
+// geometry::Pad has no shape-parameter field to export a parametric
+// shape faithfully from -- RFC 0003's own documented "Pad shape
+// fidelity" gap); any other primitive combination (multiple primitives,
+// or a primitive kind other than gr_poly) is Unsupported and throws
 // ImportError rather than being silently approximated.
 //
 // Throws ImportError (pcbir/kicad/import.hpp) on a malformed footprint/pad
