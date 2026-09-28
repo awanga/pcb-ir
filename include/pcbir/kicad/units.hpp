@@ -3,6 +3,7 @@
 #define PCBIR_KICAD_UNITS_HPP
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace pcbir::kicad {
@@ -46,6 +47,24 @@ namespace pcbir::kicad {
 // Throws pcbir::kicad::ImportError on a malformed decimal string or a
 // value that would overflow int64_t.
 [[nodiscard]] int64_t parse_ratio_to_e6(std::string_view text);
+
+// Renders integer nanometres as a KiCad-style decimal millimetre string
+// (the exporter's inverse of parse_mm_to_nm): exact, since 1 mm is exactly
+// 1e6 nm, so no rounding is ever needed going this direction. Trailing
+// fractional zeros are trimmed (e.g. 1'600'000 -> "1.6", not "1.600000"),
+// matching how real pcbnew-authored files write coordinates; a whole
+// value renders with no decimal point at all (e.g. 5'000'000 -> "5").
+// parse_mm_to_nm(format_nm_to_mm(x)) == x for every representable x.
+[[nodiscard]] std::string format_nm_to_mm(int64_t nm);
+
+// The exporter's inverse of parse_degrees_to_e6, sharing format_nm_to_mm's
+// exact (no floating point) fixed-point-to-decimal conversion -- degrees
+// and millimetres share the same *1e6 scale, but are kept as separate
+// named functions for the same reason their parse_ counterparts are.
+[[nodiscard]] std::string format_e6_to_degrees(int64_t angle_e6);
+
+// The exporter's inverse of parse_ratio_to_e6.
+[[nodiscard]] std::string format_e6_to_ratio(int64_t ratio_e6);
 
 } // namespace pcbir::kicad
 

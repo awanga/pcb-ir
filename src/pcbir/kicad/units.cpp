@@ -105,6 +105,36 @@ constexpr std::size_t FRACTION_DIGITS = 6;
   return negative ? -magnitude : magnitude;
 }
 
+// Shared exact fixed-point-1e6-to-decimal renderer behind format_nm_to_mm/
+// format_e6_to_degrees/format_e6_to_ratio (units.hpp) -- the inverse of
+// parse_decimal_e6 above. Always exact (integer division/modulo by
+// SCALE_PER_UNIT only), with trailing fractional zeros trimmed.
+[[nodiscard]] std::string format_decimal_e6(int64_t value_e6) {
+  const bool negative = value_e6 < 0;
+  // Unsigned subtraction from 0 wraps to the correct magnitude even for
+  // INT64_MIN, whose positive negation doesn't fit in int64_t.
+  const uint64_t magnitude =
+      negative ? 0 - static_cast<uint64_t>(value_e6) : static_cast<uint64_t>(value_e6);
+  const uint64_t whole = magnitude / static_cast<uint64_t>(SCALE_PER_UNIT);
+  const uint64_t fraction = magnitude % static_cast<uint64_t>(SCALE_PER_UNIT);
+
+  std::string out;
+  if (negative && magnitude != 0) {
+    out += '-';
+  }
+  out += std::to_string(whole);
+  if (fraction != 0) {
+    std::string fraction_digits = std::to_string(fraction);
+    fraction_digits.insert(0, FRACTION_DIGITS - fraction_digits.size(), '0');
+    while (fraction_digits.back() == '0') {
+      fraction_digits.pop_back();
+    }
+    out += '.';
+    out += fraction_digits;
+  }
+  return out;
+}
+
 } // namespace
 
 int64_t parse_mm_to_nm(std::string_view text) {
@@ -117,6 +147,18 @@ int64_t parse_degrees_to_e6(std::string_view text) {
 
 int64_t parse_ratio_to_e6(std::string_view text) {
   return parse_decimal_e6(text, "ratio");
+}
+
+std::string format_nm_to_mm(int64_t nm) {
+  return format_decimal_e6(nm);
+}
+
+std::string format_e6_to_degrees(int64_t angle_e6) {
+  return format_decimal_e6(angle_e6);
+}
+
+std::string format_e6_to_ratio(int64_t ratio_e6) {
+  return format_decimal_e6(ratio_e6);
 }
 
 } // namespace pcbir::kicad
