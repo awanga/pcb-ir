@@ -32,6 +32,8 @@ add_executable(pcbir_tests
   kicad/import_geometry_test.cpp
   kicad/import_nets_test.cpp
   kicad/import_footprint_test.cpp
+  kicad/import_track_test.cpp
+  kicad/import_via_test.cpp
   kicad/pad_shape_test.cpp
   kicad/corpus_test.cpp
 )

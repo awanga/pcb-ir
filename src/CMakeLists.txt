@@ -79,6 +79,8 @@ add_library(pcbir_core
   pcbir/kicad/import_nets.cpp
   pcbir/kicad/pad_shape.cpp
   pcbir/kicad/import_footprint.cpp
+  pcbir/kicad/import_track.cpp
+  pcbir/kicad/import_via.cpp
 )
 
 add_dependencies(pcbir_core pcbir_geometry_schema pcbir_connectivity_schema pcbir_stackup_schema pcbir_snapshot_schema)
