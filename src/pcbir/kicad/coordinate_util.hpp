@@ -14,15 +14,19 @@
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/kicad/units.hpp"
 #include "pcbir/stackup/layer.hpp"
+#include "pcbir/stackup/layer_stack.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <numbers>
 #include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "sexpr_util.hpp"
 
@@ -212,10 +216,71 @@ namespace pcbir::kicad {
   return result;
 }
 
+// Parses a `(layers "A" "B" ...)` node's names (its own leading Symbol
+// child, "layers", skipped) -- shared by a pad's/via's multi-layer
+// `(layers ...)` field, distinct from a single-layer `(layer "NAME")`
+// field (resolve_required_layer, below).
+[[nodiscard]] inline std::vector<std::string> parse_layer_names(const SExpr& layers_node) {
+  std::vector<std::string> names;
+  names.reserve(layers_node.children.size());
+  for (std::size_t i = 1; i < layers_node.children.size(); ++i) {
+    names.push_back(layers_node.children.at(i).text);
+  }
+  return names;
+}
+
+[[nodiscard]] inline const stackup::LayerStack&
+require_layer_stack(const stackup::StackupSnapshot& stackup) {
+  const stackup::LayerStack* stack = nullptr;
+  stackup.table<stackup::LayerStack>().for_each(
+      [&](core::EntityId, const stackup::LayerStack& candidate) { stack = &candidate; });
+  if (stack == nullptr || stack->layers.empty()) {
+    throw ImportError("via/thru-hole pad requires a non-empty stackup LayerStack");
+  }
+  return *stack;
+}
+
+[[nodiscard]] inline std::size_t layer_stack_position(const stackup::LayerStack& stack,
+                                                      core::EntityId id) {
+  for (std::size_t i = 0; i < stack.layers.size(); ++i) {
+    if (stack.layers.at(i) == id) {
+      return i;
+    }
+  }
+  throw ImportError("via/thru-hole pad references a copper layer outside the LayerStack");
+}
+
+// Resolves a via/thru-hole pad's `(layers ...)` entry to its top-to-bottom
+// ordered (start, end) layer span: either the `"*.Cu"` wildcard (every
+// copper layer, per import_stackup's own numeric-id-order-is-physical-
+// order finding) or exactly 2 explicit copper layer names. Shared by
+// import_footprint.cpp (thru-hole pads) and the free-standing `(via ...)`
+// importer, which resolve this identically.
+[[nodiscard]] inline std::pair<core::EntityId, core::EntityId>
+resolve_via_layer_span(const stackup::StackupSnapshot& stackup,
+                       const std::vector<std::string>& layer_names) {
+  const stackup::LayerStack& stack = require_layer_stack(stackup);
+
+  if (layer_names.size() == 1 && layer_names.front() == "*.Cu") {
+    return {stack.layers.front(), stack.layers.back()};
+  }
+  if (layer_names.size() < 2) {
+    throw ImportError("malformed via/thru-hole pad (layers ...): expected \"*.Cu\" or 2 names");
+  }
+  const core::EntityId first = find_layer_id_by_name(stackup, layer_names.at(0));
+  const core::EntityId second = find_layer_id_by_name(stackup, layer_names.at(1));
+  if (first.is_null() || second.is_null()) {
+    throw ImportError("via/thru-hole pad references an unrecognized copper layer");
+  }
+  return (layer_stack_position(stack, first) <= layer_stack_position(stack, second))
+             ? std::pair{first, second}
+             : std::pair{second, first};
+}
+
 // Finds the stackup Layer a node's own `(layer "NAME")` child (a track
 // segment/arc's, a zone's, a free via's single-layer field -- not the
 // multi-layer `(layers ...)` a pad/via-as-pad uses, see
-// resolve_via_layer_span in import_footprint.cpp) refers to.
+// resolve_via_layer_span, above) refers to.
 [[nodiscard]] inline core::EntityId
 resolve_required_layer(const SExpr& node, const stackup::StackupSnapshot& stackup) {
   const SExpr* layer_node = find_child(node, "layer");
