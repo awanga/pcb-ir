@@ -27,6 +27,15 @@ public:
 // unquoted Symbol's text should be read as an integer, a float, or a literal
 // keyword (e.g. `yes`/`no`/`signal`) is a semantic-layer decision the
 // importer makes per field, not something the parser can know.
+//
+// `children` (a std::vector<SExpr>) makes this a genuinely recursive type,
+// which some clang-tidy checks (misc-no-recursion) flag on any call chain
+// that constructs/copies/destroys it -- e.g. a copy triggered by a
+// std::initializer_list<SExpr> -- since the *static* type graph looks
+// self-referential even though any real tree is finite (bounded by
+// whatever produced it, e.g. parse_sexpr's own MAX_NESTING_DEPTH), the
+// same reasoning already applied to this type's own operator== below.
+// NOLINTNEXTLINE(misc-no-recursion)
 struct SExpr {
   enum class Kind : uint8_t { List, Symbol, String };
 

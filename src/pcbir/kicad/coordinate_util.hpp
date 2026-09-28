@@ -103,6 +103,46 @@ namespace pcbir::kicad {
   return geometry::Arc{.start = start, .end = end, .center = center, .direction = direction};
 }
 
+// Computes the midpoint KiCad's three-point (start/mid/end) arc
+// parameterization needs for `arc`, the exporter's inverse of
+// kicad_three_point_arc_to_pcbir (above): a point exactly halfway around
+// `arc`'s sweep from start to end, in `arc.direction`'s own sense of
+// travel, so re-parsing the emitted (start/mid/end) triple recovers the
+// same direction. Computed in double and rounded to the nearest nanometre
+// (half away from zero), the same documented best-effort precision
+// contract as kicad_three_point_arc_to_pcbir and geometry::rotate's
+// non-90-degree fallback -- an arc's true midpoint is not exactly
+// representable in integer coordinates in general.
+[[nodiscard]] inline geometry::Point arc_three_point_mid(const geometry::Arc& arc) {
+  const auto center_x = static_cast<double>(arc.center.x);
+  const auto center_y = static_cast<double>(arc.center.y);
+  const double start_x = static_cast<double>(arc.start.x) - center_x;
+  const double start_y = static_cast<double>(arc.start.y) - center_y;
+  const double end_x = static_cast<double>(arc.end.x) - center_x;
+  const double end_y = static_cast<double>(arc.end.y) - center_y;
+
+  const double radius = std::hypot(start_x, start_y);
+  const double start_angle = std::atan2(start_y, start_x);
+  const double end_angle = std::atan2(end_y, end_x);
+
+  constexpr double two_pi = 2.0 * std::numbers::pi;
+  double sweep = end_angle - start_angle;
+  if (arc.direction == geometry::ArcDirection::CounterClockwise) {
+    while (sweep <= 0.0) {
+      sweep += two_pi; // (0, 2*pi]; a full circle (start == end) lands on 2*pi.
+    }
+  } else {
+    while (sweep >= 0.0) {
+      sweep -= two_pi; // [-2*pi, 0); a full circle (start == end) lands on -2*pi.
+    }
+  }
+
+  const double mid_angle = start_angle + (sweep / 2.0);
+  return geometry::Point{
+      .x = static_cast<int64_t>(std::llround(center_x + (radius * std::cos(mid_angle)))),
+      .y = static_cast<int64_t>(std::llround(center_y + (radius * std::sin(mid_angle))))};
+}
+
 // Parses an optional trailing rotation field (a `(at x y [ANGLE])` node's
 // 4th child, or absent -- KiCad omits the field entirely for a 0-degree
 // rotation) and converts it from KiCad's clockwise-positive on-disk
