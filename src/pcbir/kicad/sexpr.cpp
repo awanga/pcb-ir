@@ -143,4 +143,64 @@ SExpr parse_sexpr(std::string_view text) {
   return Parser(text).parse_root();
 }
 
+namespace {
+
+void write_atom(const SExpr& atom, std::string& out) {
+  if (atom.is_symbol()) {
+    out += atom.text;
+    return;
+  }
+  out += '"';
+  for (const char c : atom.text) {
+    if (c == '"' || c == '\\') {
+      out += '\\';
+    }
+    out += c;
+  }
+  out += '"';
+}
+
+// Mutually non-recursive into itself except through write_node below;
+// depth is bounded by whatever built the tree (parse_sexpr's own
+// MAX_NESTING_DEPTH for anything round-tripped), the same "bounded, so
+// safe" reasoning as SExpr::operator== and parse_sexpr's own parse_list.
+// NOLINTNEXTLINE(misc-no-recursion)
+void write_node(const SExpr& node, std::size_t depth, std::string& out) {
+  if (!node.is_list()) {
+    write_atom(node, out);
+    return;
+  }
+  out += '(';
+  bool wrote_list_child = false;
+  bool first = true;
+  for (const SExpr& child : node.children) {
+    if (child.is_list()) {
+      out += '\n';
+      out.append((depth + 1) * 2, ' ');
+      write_node(child, depth + 1, out);
+      wrote_list_child = true;
+    } else {
+      if (!first) {
+        out += ' ';
+      }
+      write_atom(child, out);
+    }
+    first = false;
+  }
+  if (wrote_list_child) {
+    out += '\n';
+    out.append(depth * 2, ' ');
+  }
+  out += ')';
+}
+
+} // namespace
+
+std::string write_sexpr(const SExpr& root) {
+  std::string out;
+  write_node(root, 0, out);
+  out += '\n';
+  return out;
+}
+
 } // namespace pcbir::kicad

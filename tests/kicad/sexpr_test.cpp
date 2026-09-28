@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/kicad/sexpr.hpp"
 
+#include <array>
+#include <string>
+
 #include <catch2/catch_test_macros.hpp>
 
 using pcbir::kicad::parse_sexpr;
 using pcbir::kicad::SExpr;
 using pcbir::kicad::SExprParseError;
+using pcbir::kicad::write_sexpr;
 
 TEST_CASE("A bare symbol at the root parses as a Symbol node", "[kicad][sexpr]") {
   const SExpr expr = parse_sexpr("hello");
@@ -117,4 +121,46 @@ TEST_CASE("Trailing content after the root expression is rejected", "[kicad][sex
 TEST_CASE("SExpr nodes compare structurally equal", "[kicad][sexpr]") {
   REQUIRE(parse_sexpr("(a b)") == parse_sexpr("(a b)"));
   REQUIRE_FALSE(parse_sexpr("(a b)") == parse_sexpr("(a c)"));
+}
+
+TEST_CASE("write_sexpr renders a bare symbol as itself", "[kicad][sexpr]") {
+  REQUIRE(write_sexpr(SExpr{.kind = SExpr::Kind::Symbol, .text = "hello", .children = {}}) ==
+          "hello\n");
+}
+
+TEST_CASE("write_sexpr renders a string quoted, escaping \" and \\", "[kicad][sexpr]") {
+  REQUIRE(write_sexpr(SExpr{.kind = SExpr::Kind::String, .text = R"(a"b\c)", .children = {}}) ==
+          "\"a\\\"b\\\\c\"\n");
+}
+
+TEST_CASE("write_sexpr keeps atom-only children inline with the head", "[kicad][sexpr]") {
+  REQUIRE(write_sexpr(parse_sexpr("(net 1 \"GND\")")) == "(net 1 \"GND\")\n");
+}
+
+TEST_CASE("write_sexpr breaks before and indents a list child", "[kicad][sexpr]") {
+  REQUIRE(write_sexpr(parse_sexpr("(layers (0 \"F.Cu\" signal) (2 \"B.Cu\" signal))")) ==
+          "(layers\n"
+          "  (0 \"F.Cu\" signal)\n"
+          "  (2 \"B.Cu\" signal)\n"
+          ")\n");
+}
+
+TEST_CASE("write_sexpr round-trips every fixture in this file through parse_sexpr",
+          "[kicad][sexpr]") {
+  const std::array<const char*, 5> fixtures = {
+      R"("hello world")",
+      "(net 1 \"GND\")",
+      R"((footprint ""
+           (layer "F.Cu")
+           (at 10 10 45)
+           (pad "1" smd rect (at -1 0) (size 1.6 1.2))
+         ))",
+      "()",
+      "(layerselection 0x00000000_00000000_55555555_5755f5ff)",
+  };
+  for (const char* fixture : fixtures) {
+    const SExpr original = parse_sexpr(fixture);
+    const std::string rendered = write_sexpr(original);
+    REQUIRE(parse_sexpr(rendered) == original);
+  }
 }

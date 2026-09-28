@@ -59,6 +59,19 @@ struct SExpr {
 // all.
 [[nodiscard]] SExpr parse_sexpr(std::string_view text);
 
+// Renders `root` back to S-expression text: a Symbol writes as its bare
+// text, a String writes quoted with `"`/`\` escaped, and a List writes each
+// atom child inline with its siblings but breaks before and indents (2
+// spaces per nesting level) each list child -- the same two-style
+// formatting real `pcbnew`-authored files use (a `(pad "1" smd rect (at 1
+// 2) (size 1.6 1.2))`-style leaf line, vs. a section like `(layers ...)`
+// whose children are each their own line). This is purely cosmetic:
+// `parse_sexpr` is whitespace-insensitive, so the exporter (export.hpp)
+// need not match `pcbnew`'s exact byte-for-byte layout for the output to be
+// valid, reparseable, and reloadable in KiCad. `parse_sexpr(write_sexpr(x))
+// == x` for any `x` this parser could have produced.
+[[nodiscard]] std::string write_sexpr(const SExpr& root);
+
 } // namespace pcbir::kicad
 
 #endif // PCBIR_KICAD_SEXPR_HPP
