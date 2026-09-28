@@ -380,6 +380,27 @@ reinterpreting an unrelated payload as a `Segment`.
 
 - Namespaced; see `docs/extensions-governance.md` and Snapshot composition above.
 
+## KiCad export UUID namespace
+
+The KiCad exporter (`pcbir::kicad::export_kicad_pcb`,
+`docs/rfcs/0003-kicad-importer-exporter.md`) assigns every exported entity a UUIDv5 (RFC 4122
+section 4.3, name-based, SHA-1), computed from a fixed namespace UUID and the name string
+`"pcbir:<domain>:<entity_kind>:<entity_id>"` (e.g. `"pcbir:geometry:pad:42"`). This makes
+every exported `(uuid "...")` a pure, reproducible function of the entity's own stable
+identity -- never random, never pointer/address-based -- satisfying the determinism invariant
+every pass in this project must hold.
+
+The namespace UUID is a one-time, arbitrarily generated constant, fixed here and never
+changed (changing it would change every future export's UUIDs, breaking anything that diffs
+exported files across PCB-IR versions):
+
+```
+4183b33a-de9e-4074-bdb1-e8d33c7cc35a
+```
+
+Implemented in `pcbir::kicad::uuid_v5` (`src/pcbir/kicad/uuid.hpp`, internal -- not part of
+the public API).
+
 ## Intent & Planning schema (reserved, Post-MVP)
 
 `schemas/intent.fbs` (Layer 6) is reserved, not built, in v0.1, the same way the

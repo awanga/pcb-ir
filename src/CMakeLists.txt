@@ -74,6 +74,7 @@ add_library(pcbir_core
   pcbir/board_file_view.cpp
   pcbir/kicad/sexpr.cpp
   pcbir/kicad/units.cpp
+  pcbir/kicad/uuid.cpp
   pcbir/kicad/import.cpp
   pcbir/kicad/import_geometry.cpp
   pcbir/kicad/import_nets.cpp

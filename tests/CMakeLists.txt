@@ -28,6 +28,7 @@ add_executable(pcbir_tests
   stackup/diagnostics_test.cpp
   kicad/sexpr_test.cpp
   kicad/units_test.cpp
+  kicad/uuid_test.cpp
   kicad/import_test.cpp
   kicad/import_geometry_test.cpp
   kicad/import_nets_test.cpp
