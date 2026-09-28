@@ -6,6 +6,7 @@
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
+#include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/path.hpp"
 #include "pcbir/geometry/point.hpp"
@@ -20,6 +21,7 @@
 #include "pcbir/kicad/import_nets.hpp"
 #include "pcbir/kicad/import_track.hpp"
 #include "pcbir/kicad/import_via.hpp"
+#include "pcbir/kicad/import_zone.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/layer.hpp"
 #include "pcbir/stackup/layer_stack.hpp"
@@ -44,12 +46,14 @@ using pcbir::kicad::export_board_outline;
 using pcbir::kicad::export_layers_section;
 using pcbir::kicad::export_tracks;
 using pcbir::kicad::export_vias;
+using pcbir::kicad::export_zones;
 using pcbir::kicad::ExportError;
 using pcbir::kicad::import_board_outline;
 using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
 using pcbir::kicad::import_tracks;
 using pcbir::kicad::import_vias;
+using pcbir::kicad::import_zones;
 using pcbir::kicad::parse_sexpr;
 using pcbir::kicad::SExpr;
 using pcbir::kicad::ViaImportResult;
@@ -64,6 +68,7 @@ using pcbir::geometry::Arc;
 using pcbir::geometry::ArcDirection;
 using pcbir::geometry::BoardOutline;
 using pcbir::geometry::Contour;
+using pcbir::geometry::CopperPour;
 using pcbir::geometry::Footprint;
 using pcbir::geometry::GeometrySnapshot;
 using pcbir::geometry::GeometryWorkspace;
@@ -504,4 +509,114 @@ TEST_CASE("export_vias round-trips a free via through import_vias, excluding "
   REQUIRE(via.position.y == 5'000'000);
   REQUIRE(via.drill_diameter_nm == 400'000);
   REQUIRE(via.pad_diameter_nm == 800'000);
+}
+
+namespace {
+
+[[nodiscard]] const CopperPour& only_pour(const GeometrySnapshot& geometry) {
+  const CopperPour* found = nullptr;
+  geometry.table<CopperPour>().for_each(
+      [&](EntityId, const CopperPour& candidate) { found = &candidate; });
+  REQUIRE(found != nullptr);
+  return *found;
+}
+
+} // namespace
+
+TEST_CASE("export_zones round-trips a rectangular zone with a net through import_zones",
+          "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+
+  const ConnectivitySnapshot nets = one_net("GND");
+  const EntityId gnd = only_net_id(nets);
+
+  const Contour rect{
+      .spans = {Span{Segment{.start = {.x = 0, .y = 0}, .end = {.x = 30'000'000, .y = 0}}},
+                Span{Segment{.start = {.x = 30'000'000, .y = 0},
+                             .end = {.x = 30'000'000, .y = 20'000'000}}},
+                Span{Segment{.start = {.x = 30'000'000, .y = 20'000'000},
+                             .end = {.x = 0, .y = 20'000'000}}},
+                Span{Segment{.start = {.x = 0, .y = 20'000'000}, .end = {.x = 0, .y = 0}}}}};
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(CopperPour{
+      .outline = Polygon{.outline = rect, .holes = {}}, .layer = front_copper, .net = gnd});
+  const GeometrySnapshot original = geometry_workspace.commit();
+
+  const std::vector<SExpr> nodes = export_zones(original, stackup, nets);
+  REQUIRE(nodes.size() == 1);
+
+  const SExpr layers_section = export_layers_section(stackup);
+  const SExpr root = parse_sexpr(write_sexpr(wrap_board(layers_section, nodes)));
+  const StackupSnapshot reimported_stackup = import_stackup(root);
+  const ConnectivitySnapshot reimported_nets = import_nets(root);
+  const GeometrySnapshot reimported = import_zones(root, reimported_stackup, reimported_nets);
+
+  REQUIRE(reimported.table<CopperPour>().size() == 1);
+  const CopperPour& pour = only_pour(reimported);
+  REQUIRE(pour.outline.outline.spans.size() == 4);
+  REQUIRE(pour.outline.holes.empty());
+  REQUIRE_FALSE(pour.net.is_null());
+}
+
+TEST_CASE("export_zones round-trips a zone with a cutout hole through import_zones",
+          "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+  const ConnectivitySnapshot nets = one_net("GND");
+
+  const Contour outer{
+      .spans = {Span{Segment{.start = {.x = 0, .y = 0}, .end = {.x = 30'000'000, .y = 0}}},
+                Span{Segment{.start = {.x = 30'000'000, .y = 0},
+                             .end = {.x = 30'000'000, .y = 20'000'000}}},
+                Span{Segment{.start = {.x = 30'000'000, .y = 20'000'000},
+                             .end = {.x = 0, .y = 20'000'000}}},
+                Span{Segment{.start = {.x = 0, .y = 20'000'000}, .end = {.x = 0, .y = 0}}}}};
+  const Contour hole{.spans = {Span{Segment{.start = {.x = 5'000'000, .y = 5'000'000},
+                                            .end = {.x = 5'000'000, .y = 10'000'000}}},
+                               Span{Segment{.start = {.x = 5'000'000, .y = 10'000'000},
+                                            .end = {.x = 10'000'000, .y = 10'000'000}}},
+                               Span{Segment{.start = {.x = 10'000'000, .y = 10'000'000},
+                                            .end = {.x = 10'000'000, .y = 5'000'000}}},
+                               Span{Segment{.start = {.x = 10'000'000, .y = 5'000'000},
+                                            .end = {.x = 5'000'000, .y = 5'000'000}}}}};
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(CopperPour{.outline = Polygon{.outline = outer, .holes = {hole}},
+                                       .layer = front_copper,
+                                       .net = EntityId{}});
+  const GeometrySnapshot original = geometry_workspace.commit();
+
+  const std::vector<SExpr> nodes = export_zones(original, stackup, nets);
+  const SExpr layers_section = export_layers_section(stackup);
+  const SExpr root = parse_sexpr(write_sexpr(wrap_board(layers_section, nodes)));
+  const StackupSnapshot reimported_stackup = import_stackup(root);
+  const ConnectivitySnapshot reimported_nets = import_nets(root);
+  const GeometrySnapshot reimported = import_zones(root, reimported_stackup, reimported_nets);
+
+  const CopperPour& pour = only_pour(reimported);
+  REQUIRE(pour.outline.holes.size() == 1);
+  REQUIRE(pour.net.is_null());
+}
+
+TEST_CASE("export_zones throws when a CopperPour outline contains an Arc span", "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+  const ConnectivitySnapshot nets = one_net("GND");
+
+  const Contour arc_cornered{
+      .spans = {Span{Arc{.start = {.x = 0, .y = 1'000'000},
+                         .end = {.x = 1'000'000, .y = 0},
+                         .center = {.x = 0, .y = 0},
+                         .direction = ArcDirection::Clockwise}},
+                Span{Segment{.start = {.x = 1'000'000, .y = 0}, .end = {.x = 0, .y = 1'000'000}}}}};
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(CopperPour{.outline = Polygon{.outline = arc_cornered, .holes = {}},
+                                       .layer = front_copper,
+                                       .net = EntityId{}});
+  const GeometrySnapshot original = geometry_workspace.commit();
+
+  REQUIRE_THROWS_AS(export_zones(original, stackup, nets), ExportError);
 }

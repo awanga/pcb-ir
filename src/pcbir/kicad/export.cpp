@@ -8,6 +8,7 @@
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
+#include "pcbir/geometry/copper_pour.hpp"
 #include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/path.hpp"
 #include "pcbir/geometry/polygon.hpp"
@@ -40,6 +41,7 @@ namespace pcbir::kicad {
 namespace {
 
 using geometry::Arc;
+using geometry::Contour;
 using geometry::Segment;
 using geometry::Span;
 
@@ -328,6 +330,60 @@ std::vector<SExpr> export_vias(const geometry::GeometrySnapshot& geometry,
     const core::EntityId net_id = pin_it != pin_nets.end() ? pin_it->second : core::EntityId{};
     nodes.push_back(export_via_entry(via, start_layer, end_layer, net_field(nets, net_id), id));
   });
+  return nodes;
+}
+
+namespace {
+
+// A zone's `(polygon (pts (xy X Y) ...))` node for `contour` -- the
+// exporter's inverse of import_zone.cpp's parse_zone_polygon, recovering
+// the original point list from each span's start point (adjacent spans in
+// a closed Contour share endpoints, so the start points alone already
+// trace the whole loop). Throws ExportError on an Arc span: KiCad's zone
+// `(pts ...)` supports only straight-edge points, the same restriction
+// import_zones documents as Unsupported for an arc-cornered zone.
+[[nodiscard]] SExpr export_zone_polygon(const Contour& contour) {
+  std::vector<SExpr> points;
+  points.reserve(contour.spans.size());
+  for (const Span& span : contour.spans) {
+    if (std::holds_alternative<Arc>(span)) {
+      throw ExportError("CopperPour outline/hole has an Arc span -- KiCad's zone (pts ...) "
+                        "supports only straight edges");
+    }
+    points.push_back(coordinate_pair("xy", geometry::span_start(span)));
+  }
+  return tagged("polygon", {tagged("pts", std::move(points))});
+}
+
+[[nodiscard]] SExpr export_zone_entry(const geometry::CopperPour& pour,
+                                      const stackup::Layer& layer,
+                                      std::optional<SExpr> net,
+                                      core::EntityId pour_id) {
+  const std::string uuid_name = "pcbir:geometry:copper_pour:" + std::to_string(pour_id.value());
+
+  std::vector<SExpr> children;
+  push_if_present(children, std::move(net));
+  children.push_back(tagged("layer", {str(layer.name)}));
+  children.push_back(tagged("uuid", {str(uuid_v5(UUID_NAMESPACE, uuid_name))}));
+  children.push_back(export_zone_polygon(pour.outline.outline));
+  for (const Contour& hole : pour.outline.holes) {
+    children.push_back(export_zone_polygon(hole));
+  }
+
+  return tagged("zone", std::move(children));
+}
+
+} // namespace
+
+std::vector<SExpr> export_zones(const geometry::GeometrySnapshot& geometry,
+                                const stackup::StackupSnapshot& stackup,
+                                const connectivity::ConnectivitySnapshot& nets) {
+  std::vector<SExpr> nodes;
+  geometry.table<geometry::CopperPour>().for_each(
+      [&](core::EntityId id, const geometry::CopperPour& pour) {
+        const stackup::Layer& layer = require_layer(stackup, pour.layer);
+        nodes.push_back(export_zone_entry(pour, layer, net_field(nets, pour.net), id));
+      });
   return nodes;
 }
 

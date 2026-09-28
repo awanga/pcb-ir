@@ -92,6 +92,28 @@ public:
                                              const stackup::StackupSnapshot& stackup,
                                              const connectivity::ConnectivitySnapshot& nets);
 
+// Exports every CopperPour in `geometry` into one `(zone ...)` SExpr node
+// -- the exporter's inverse of import_zones (pcbir/kicad/import_zone.hpp).
+// Unlike import_zones (which splits one multi-layer `(layers "X" "Y" ...)`
+// zone into several single-layer CopperPours sharing an outline), this
+// always emits a single-layer `(layer "X")` zone per CopperPour, even when
+// several CopperPours happen to share the same outline and net -- merging
+// them back into one multi-layer zone would require detecting that
+// equivalence, which this first pass doesn't attempt. The result is still
+// geometrically and electrically identical once reloaded (a documented
+// Approximated-tier restructuring: zone *count* isn't preserved, only the
+// copper each zone pours). `net`, if not null, is resolved to its Net's
+// name and emitted as `(net "NAME")`; a null net omits the field.
+//
+// Throws ExportError if a CopperPour's `layer` doesn't resolve against
+// `stackup`, its `net` doesn't resolve against `nets`, or its outline or
+// any hole contains an Arc span (KiCad's `(zone ...)` `(polygon (pts
+// ...))` supports only straight-edge points -- the same restriction
+// import_zones documents as Unsupported for an arc-cornered zone).
+[[nodiscard]] std::vector<SExpr> export_zones(const geometry::GeometrySnapshot& geometry,
+                                              const stackup::StackupSnapshot& stackup,
+                                              const connectivity::ConnectivitySnapshot& nets);
+
 } // namespace pcbir::kicad
 
 #endif // PCBIR_KICAD_EXPORT_HPP
