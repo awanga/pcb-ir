@@ -23,10 +23,14 @@ public:
 // Imports the `(layers ...)` section of a parsed `.kicad_pcb` root
 // expression (see parse_sexpr) into a stackup snapshot: one Layer per
 // Copper (name ends in ".Cu"), Edge.Cuts, or F.SilkS/B.SilkS entry, plus
-// one LayerStack listing just the Copper layers in KiCad's own numeric
-// layer-id order -- which is physical top-to-bottom stackup order for
-// copper layers (verified against real pcbnew output; see
-// docs/rfcs/0003-kicad-importer-exporter.md). KiCad's other "technical"/
+// one LayerStack listing just the Copper layers in the order they appear
+// in the file -- which is physical top-to-bottom stackup order for copper
+// layers, NOT their numeric layer-id order (a board's B.Cu always carries
+// the fixed id 2 regardless of copper layer count, while inner layers get
+// higher ids in physical order, so id order and file order only coincide
+// for a 2-layer board; verified against real pcbnew output on 2/4/6-layer
+// boards -- see docs/rfcs/0003-kicad-importer-exporter.md). KiCad's other
+// "technical"/
 // "user" layers (F.Mask, F.Paste, F.Fab, F.CrtYd, Dwgs.User, ...) have no
 // stackup::LayerKind yet and are silently skipped, not imported
 // (docs/rfcs/0003-kicad-importer-exporter.md -- "Explicitly out of

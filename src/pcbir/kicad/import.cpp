@@ -7,7 +7,6 @@
 #include "pcbir/stackup/layer_stack.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
-#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -85,11 +84,21 @@ stackup::StackupSnapshot import_stackup(const SExpr& kicad_pcb) {
   }
 
   if (!copper_rows.empty()) {
-    // KiCad's own numeric layer-id order is physical top-to-bottom stackup
-    // order for copper layers (F.Cu = 0 lowest, B.Cu highest among
-    // coppers) -- verified against real pcbnew output, not assumed (see
-    // docs/rfcs/0003-kicad-importer-exporter.md).
-    std::ranges::sort(copper_rows, {}, &KicadLayerRow::id);
+    // copper_rows is already in physical top-to-bottom stackup order: it's
+    // built by a single pass over (layers ...)'s own children in file
+    // order, and that file order -- not the numeric id -- is what encodes
+    // physical order. Verified against real pcbnew output on 2/4/6-copper-
+    // layer boards (docs/rfcs/0003-kicad-importer-exporter.md): a board's
+    // id for B.Cu is always the fixed value 2 regardless of copper layer
+    // count (KiCad's internal PCB_LAYER_ID enum reserves 2 for B.Cu
+    // specifically), while inner layers get ids 4, 6, 8, ... in physical
+    // order -- so sorting copper_rows by id (this function's original,
+    // incorrect approach, corrected here) places B.Cu second-from-top on
+    // any board with 2+ inner layers instead of last. pcbnew itself
+    // doesn't trust a loaded file's id for a named layer either (confirmed
+    // by editing a probe file's B.Cu id and reloading: pcbnew re-derives
+    // the canonical id from the name and loads it unchanged) -- id is a
+    // per-name tag, not a position encoding.
 
     std::vector<core::EntityId> copper_layer_ids;
     copper_layer_ids.reserve(copper_rows.size());

@@ -6,6 +6,10 @@
 #include "pcbir/stackup/layer_stack.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <array>
+#include <cstddef>
+#include <string>
+
 #include <catch2/catch_test_macros.hpp>
 
 using pcbir::core::EntityId;
@@ -35,6 +39,25 @@ constexpr const char* TWO_LAYER_BOARD = R"(
       (5 "F.SilkS" user "F.Silkscreen")
       (7 "B.SilkS" user "B.Silkscreen")
       (1 "F.Mask" user)
+      (25 "Edge.Cuts" user)
+    )
+  )
+)";
+
+// A real 4-copper-layer board's (layers ...) section, taken verbatim from a
+// pcbnew-scripted probe board (docs/rfcs/0003-kicad-importer-exporter.md).
+// Note the numeric ids are NOT in physical order (B.Cu's id, 2, is lower
+// than both inner layers') even though the file's own list order is.
+constexpr const char* FOUR_LAYER_BOARD = R"(
+  (kicad_pcb
+    (version 20260206)
+    (layers
+      (0 "F.Cu" signal)
+      (4 "In1.Cu" signal)
+      (6 "In2.Cu" signal)
+      (2 "B.Cu" signal)
+      (5 "F.SilkS" user "F.Silkscreen")
+      (7 "B.SilkS" user "B.Silkscreen")
       (25 "Edge.Cuts" user)
     )
   )
@@ -98,6 +121,27 @@ TEST_CASE("import_stackup's LayerStack lists Copper layers in KiCad's id order",
   REQUIRE(second != nullptr);
   REQUIRE(first->name == "F.Cu");
   REQUIRE(second->name == "B.Cu");
+}
+
+TEST_CASE("import_stackup's LayerStack lists inner Copper layers in physical (file) order, "
+          "not numeric id order",
+          "[kicad][import]") {
+  // FOUR_LAYER_BOARD's ids are 0, 4, 6, 2 for F.Cu/In1.Cu/In2.Cu/B.Cu --
+  // sorting by id would wrongly place B.Cu second, not last.
+  const StackupSnapshot snapshot = import_stackup(parse_sexpr(FOUR_LAYER_BOARD));
+
+  const LayerStack* stack = find_layer_stack(snapshot);
+  REQUIRE(stack != nullptr);
+  REQUIRE(stack->layers.size() == 4);
+
+  const auto& layers = snapshot.table<Layer>();
+  std::array<std::string, 4> names;
+  for (std::size_t i = 0; i < stack->layers.size(); ++i) {
+    const Layer* layer = layers.try_get(layers.find(stack->layers.at(i)));
+    REQUIRE(layer != nullptr);
+    names.at(i) = layer->name;
+  }
+  REQUIRE(names == std::array<std::string, 4>{"F.Cu", "In1.Cu", "In2.Cu", "B.Cu"});
 }
 
 TEST_CASE("import_stackup imports Edge.Cuts as a non-physical EdgeCuts layer", "[kicad][import]") {
