@@ -1,20 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "pcbir/connectivity/net.hpp"
+#include "pcbir/connectivity/pin.hpp"
+#include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
+#include "pcbir/geometry/footprint.hpp"
+#include "pcbir/geometry/path.hpp"
 #include "pcbir/geometry/point.hpp"
 #include "pcbir/geometry/polygon.hpp"
 #include "pcbir/geometry/segment.hpp"
 #include "pcbir/geometry/serialize.hpp"
+#include "pcbir/geometry/track.hpp"
+#include "pcbir/geometry/via.hpp"
 #include "pcbir/kicad/export.hpp"
 #include "pcbir/kicad/import.hpp"
 #include "pcbir/kicad/import_geometry.hpp"
+#include "pcbir/kicad/import_nets.hpp"
+#include "pcbir/kicad/import_track.hpp"
+#include "pcbir/kicad/import_via.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/layer.hpp"
 #include "pcbir/stackup/layer_stack.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -24,14 +35,24 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using pcbir::connectivity::ConnectivitySnapshot;
+using pcbir::connectivity::ConnectivityWorkspace;
+using pcbir::connectivity::Net;
+using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
 using pcbir::kicad::export_board_outline;
 using pcbir::kicad::export_layers_section;
+using pcbir::kicad::export_tracks;
+using pcbir::kicad::export_vias;
 using pcbir::kicad::ExportError;
 using pcbir::kicad::import_board_outline;
+using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
+using pcbir::kicad::import_tracks;
+using pcbir::kicad::import_vias;
 using pcbir::kicad::parse_sexpr;
 using pcbir::kicad::SExpr;
+using pcbir::kicad::ViaImportResult;
 using pcbir::kicad::write_sexpr;
 using pcbir::stackup::Layer;
 using pcbir::stackup::LayerKind;
@@ -43,12 +64,17 @@ using pcbir::geometry::Arc;
 using pcbir::geometry::ArcDirection;
 using pcbir::geometry::BoardOutline;
 using pcbir::geometry::Contour;
+using pcbir::geometry::Footprint;
 using pcbir::geometry::GeometrySnapshot;
 using pcbir::geometry::GeometryWorkspace;
+using pcbir::geometry::Path;
 using pcbir::geometry::Point;
 using pcbir::geometry::Polygon;
 using pcbir::geometry::Segment;
 using pcbir::geometry::Span;
+using pcbir::geometry::Track;
+using pcbir::geometry::Via;
+using pcbir::geometry::WidthSpan;
 
 namespace {
 
@@ -313,4 +339,169 @@ TEST_CASE("export_board_outline throws when stackup has no Edge.Cuts layer", "[k
   workspace.insert(copper_layer("F.Cu"));
   const GeometrySnapshot empty_geometry = GeometryWorkspace{}.commit();
   REQUIRE_THROWS_AS(export_board_outline(empty_geometry, workspace.commit()), ExportError);
+}
+
+namespace {
+
+[[nodiscard]] ConnectivitySnapshot one_net(const std::string& name) {
+  ConnectivityWorkspace workspace;
+  workspace.insert(Net{.name = name});
+  return workspace.commit();
+}
+
+[[nodiscard]] EntityId only_net_id(const ConnectivitySnapshot& nets) {
+  EntityId id;
+  nets.table<Net>().for_each([&](EntityId candidate_id, const Net&) { id = candidate_id; });
+  return id;
+}
+
+[[nodiscard]] EntityId find_layer_id(const StackupSnapshot& stackup, const std::string& name) {
+  EntityId id;
+  stackup.table<Layer>().for_each([&](EntityId candidate_id, const Layer& layer) {
+    if (layer.name == name) {
+      id = candidate_id;
+    }
+  });
+  return id;
+}
+
+// Extracted (rather than inlined per-TEST_CASE with a for_each lambda) so
+// the lookup's own nesting doesn't count against the calling TEST_CASE's
+// readability-function-cognitive-complexity budget -- the same pattern
+// import_track_test.cpp/import_via_test.cpp already use.
+[[nodiscard]] const Track& find_segment_track(const GeometrySnapshot& geometry) {
+  const Track* found = nullptr;
+  geometry.table<Track>().for_each([&](EntityId, const Track& track) {
+    if (std::holds_alternative<Segment>(track.path.spans.front().geometry)) {
+      found = &track;
+    }
+  });
+  REQUIRE(found != nullptr);
+  return *found;
+}
+
+[[nodiscard]] std::size_t count_null_net_tracks(const GeometrySnapshot& geometry) {
+  std::size_t count = 0;
+  geometry.table<Track>().for_each([&](EntityId, const Track& track) {
+    if (track.net.is_null()) {
+      ++count;
+    }
+  });
+  return count;
+}
+
+[[nodiscard]] const Via& only_via(const GeometrySnapshot& geometry) {
+  const Via* found = nullptr;
+  geometry.table<Via>().for_each([&](EntityId, const Via& candidate) { found = &candidate; });
+  REQUIRE(found != nullptr);
+  return *found;
+}
+
+} // namespace
+
+TEST_CASE("export_tracks round-trips a segment and an arc through import_tracks, "
+          "reusing SIG1's name across the reimport",
+          "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+
+  const ConnectivitySnapshot nets = one_net("SIG1");
+  const EntityId sig1 = only_net_id(nets);
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(
+      Track{.path = Path{.spans = {WidthSpan{
+                             .geometry = Span{Segment{.start = {.x = 0, .y = 0},
+                                                      .end = {.x = 5'000'000, .y = 5'000'000}}},
+                             .width_nm = 250'000}}},
+            .layer = front_copper,
+            .net = sig1});
+  geometry_workspace.insert(
+      Track{.path = Path{.spans = {WidthSpan{
+                             .geometry = Span{Arc{.start = {.x = 0, .y = 5'000'000},
+                                                  .end = {.x = 5'000'000, .y = 0},
+                                                  .center = {.x = 5'000'000, .y = 5'000'000},
+                                                  .direction = ArcDirection::CounterClockwise}},
+                             .width_nm = 300'000}}},
+            .layer = front_copper,
+            .net = EntityId{}});
+  const GeometrySnapshot original = geometry_workspace.commit();
+
+  const std::vector<SExpr> nodes = export_tracks(original, stackup, nets);
+  REQUIRE(nodes.size() == 2);
+
+  const SExpr layers_section = export_layers_section(stackup);
+  const SExpr root = parse_sexpr(write_sexpr(wrap_board(layers_section, nodes)));
+  const StackupSnapshot reimported_stackup = import_stackup(root);
+  const ConnectivitySnapshot reimported_nets = import_nets(root);
+  const GeometrySnapshot reimported = import_tracks(root, reimported_stackup, reimported_nets);
+
+  REQUIRE(reimported.table<Track>().size() == 2);
+  REQUIRE(reimported_nets.table<Net>().size() == 1);
+
+  REQUIRE_FALSE(find_segment_track(reimported).net.is_null());
+  REQUIRE(count_null_net_tracks(reimported) == 1);
+}
+
+TEST_CASE("export_vias round-trips a free via through import_vias, excluding "
+          "footprint-owned vias",
+          "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+  const EntityId back_copper = find_layer_id(stackup, "B.Cu");
+
+  const ConnectivitySnapshot nets = one_net("GND");
+  const EntityId gnd = only_net_id(nets);
+
+  GeometryWorkspace geometry_workspace;
+  const auto free_via_handle =
+      geometry_workspace.insert(Via{.position = {.x = 5'000'000, .y = 5'000'000},
+                                    .drill_diameter_nm = 400'000,
+                                    .finished_hole_diameter_nm = 400'000,
+                                    .pad_diameter_nm = 800'000,
+                                    .start_layer = front_copper,
+                                    .end_layer = back_copper,
+                                    .pad_number = ""});
+  const EntityId free_via_id = geometry_workspace.table<Via>().id_of(free_via_handle);
+
+  // A second Via, identical in shape, but owned by a Footprint (a
+  // thru-hole pad) -- must be excluded from export_vias' output.
+  const auto owned_via_handle =
+      geometry_workspace.insert(Via{.position = {.x = 10'000'000, .y = 10'000'000},
+                                    .drill_diameter_nm = 300'000,
+                                    .finished_hole_diameter_nm = 300'000,
+                                    .pad_diameter_nm = 600'000,
+                                    .start_layer = front_copper,
+                                    .end_layer = back_copper,
+                                    .pad_number = "1"});
+  const EntityId owned_via_id = geometry_workspace.table<Via>().id_of(owned_via_handle);
+  geometry_workspace.insert(Footprint{.reference_designator = "J1",
+                                      .value = "",
+                                      .position = {.x = 0, .y = 0},
+                                      .rotation_e6 = 0,
+                                      .side = pcbir::geometry::FootprintSide::Top,
+                                      .pads = {owned_via_id}});
+
+  const GeometrySnapshot original = geometry_workspace.commit();
+
+  ConnectivityWorkspace connectivity_workspace(nets);
+  connectivity_workspace.insert(Pin{.pad = free_via_id, .net = gnd});
+  connectivity_workspace.insert(Pin{.pad = owned_via_id, .net = gnd});
+  const ConnectivitySnapshot connectivity = connectivity_workspace.commit();
+
+  const std::vector<SExpr> nodes = export_vias(original, stackup, connectivity);
+  REQUIRE(nodes.size() == 1);
+
+  const SExpr layers_section = export_layers_section(stackup);
+  const SExpr root = parse_sexpr(write_sexpr(wrap_board(layers_section, nodes)));
+  const StackupSnapshot reimported_stackup = import_stackup(root);
+  const ConnectivitySnapshot reimported_nets = import_nets(root);
+  const ViaImportResult result = import_vias(root, reimported_stackup, reimported_nets);
+
+  REQUIRE(result.geometry.table<Via>().size() == 1);
+  const Via& via = only_via(result.geometry);
+  REQUIRE(via.position.x == 5'000'000);
+  REQUIRE(via.position.y == 5'000'000);
+  REQUIRE(via.drill_diameter_nm == 400'000);
+  REQUIRE(via.pad_diameter_nm == 800'000);
 }

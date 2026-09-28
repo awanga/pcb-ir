@@ -2,6 +2,7 @@
 #ifndef PCBIR_KICAD_EXPORT_HPP
 #define PCBIR_KICAD_EXPORT_HPP
 
+#include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
@@ -60,6 +61,36 @@ public:
 // BoardOutline's own `layer` doesn't resolve against it.
 [[nodiscard]] std::vector<SExpr> export_board_outline(const geometry::GeometrySnapshot& geometry,
                                                       const stackup::StackupSnapshot& stackup);
+
+// Exports every Track in `geometry` into one `(segment ...)`/`(arc ...)`
+// SExpr node per WidthSpan in its Path -- the exporter's inverse of
+// import_tracks (pcbir/kicad/import_track.hpp). `net`, if not null, is
+// resolved to its Net's name and emitted as `(net "NAME")`; a null net is
+// omitted entirely, matching how KiCad itself never writes a placeholder
+// for an unclaimed net. Each node's UUIDv5 is derived from its owning
+// Track's EntityId and its span's position within the Path.
+//
+// Throws ExportError if a Track's `layer` doesn't resolve against
+// `stackup`, or its `net` doesn't resolve against `nets`.
+[[nodiscard]] std::vector<SExpr> export_tracks(const geometry::GeometrySnapshot& geometry,
+                                               const stackup::StackupSnapshot& stackup,
+                                               const connectivity::ConnectivitySnapshot& nets);
+
+// Exports every Via in `geometry` that isn't referenced by any
+// Footprint's `pads` list (a free-standing/stitching via, not a
+// footprint's thru-hole pad -- pcbir/kicad/import_footprint.hpp handles
+// those on import, and the eventual export_footprints will handle them on
+// export) into one `(via ...)` SExpr node -- the exporter's inverse of
+// import_vias (pcbir/kicad/import_via.hpp). `start_layer`/`end_layer` are
+// always emitted as two explicit layer names (never KiCad's `"*.Cu"`
+// wildcard); both forms are semantically identical to pcbnew, so this
+// loses no information, only the original text form of a wildcard span.
+//
+// Throws ExportError if a free Via's `start_layer`/`end_layer` doesn't
+// resolve against `stackup`, or its `net` doesn't resolve against `nets`.
+[[nodiscard]] std::vector<SExpr> export_vias(const geometry::GeometrySnapshot& geometry,
+                                             const stackup::StackupSnapshot& stackup,
+                                             const connectivity::ConnectivitySnapshot& nets);
 
 } // namespace pcbir::kicad
 
