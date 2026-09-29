@@ -73,10 +73,11 @@ void import_track_entry(const SExpr& node,
 
 geometry::GeometrySnapshot import_tracks(const SExpr& kicad_pcb,
                                          const stackup::StackupSnapshot& stackup,
-                                         const connectivity::ConnectivitySnapshot& nets) {
+                                         const connectivity::ConnectivitySnapshot& nets,
+                                         const geometry::GeometrySnapshot& base) {
   const std::map<std::string, core::EntityId> net_index = build_net_index(nets);
 
-  geometry::GeometryWorkspace workspace;
+  geometry::GeometryWorkspace workspace(base);
   for (const SExpr* row : find_all_children(kicad_pcb, "segment")) {
     import_track_entry(*row, parse_segment_span(*row), stackup, net_index, workspace);
   }

@@ -6,6 +6,7 @@
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/geometry/via.hpp"
 #include "pcbir/kicad/import.hpp"
+#include "pcbir/kicad/import_footprint.hpp"
 #include "pcbir/kicad/import_nets.hpp"
 #include "pcbir/kicad/import_via.hpp"
 #include "pcbir/kicad/sexpr.hpp"
@@ -19,6 +20,8 @@ using pcbir::connectivity::ConnectivitySnapshot;
 using pcbir::connectivity::Net;
 using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
+using pcbir::kicad::FootprintImportResult;
+using pcbir::kicad::import_footprints;
 using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
 using pcbir::kicad::import_vias;
@@ -61,6 +64,40 @@ constexpr const char* VIA_BOARD = R"(
   REQUIRE(found != nullptr);
   return *found;
 }
+
+// Assumes `snapshot`'s Component table has exactly one entry -- used to
+// pull out the single id a composability test needs to check for.
+template <typename Component, typename Snapshot>
+[[nodiscard]] EntityId only_id(const Snapshot& snapshot) {
+  EntityId found;
+  snapshot.template table<Component>().for_each([&](EntityId id, const Component&) { found = id; });
+  return found;
+}
+
+template <typename Component, typename Snapshot>
+[[nodiscard]] bool table_contains_id(const Snapshot& snapshot, EntityId id) {
+  bool found = false;
+  snapshot.template table<Component>().for_each(
+      [&](EntityId candidate, const Component&) { found = found || (candidate == id); });
+  return found;
+}
+
+// A footprint with one thru-hole pad (modeled as a Via -- import_footprint.hpp)
+// plus a separate free-standing via, both on net GND -- exercises chaining
+// import_footprints -> import_vias the same way import_kicad_pcb does
+// (pcbir/kicad/import.hpp).
+constexpr const char* FOOTPRINT_AND_VIA_BOARD = R"(
+  (kicad_pcb
+    (layers
+      (0 "F.Cu" signal)
+      (2 "B.Cu" signal)
+    )
+    (footprint "" (layer "F.Cu") (at 10 10)
+      (pad "1" thru_hole circle (at 0 0) (size 1.2 1.2) (drill 0.6) (layers "*.Cu") (net "GND"))
+    )
+    (via (at 20 20) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net "GND"))
+  )
+)";
 
 } // namespace
 
@@ -149,4 +186,33 @@ TEST_CASE("import_vias throws on a via missing (drill ...)", "[kicad][import]") 
   const StackupSnapshot stackup = import_stackup(root);
   const ConnectivitySnapshot nets = import_nets(root);
   REQUIRE_THROWS_AS(import_vias(root, stackup, nets), ImportError);
+}
+
+TEST_CASE("import_vias given a geometry_base and an accumulated connectivity snapshot chains "
+          "onto import_footprints without colliding ids",
+          "[kicad][import]") {
+  // Mirrors how import_kicad_pcb chains import_footprints -> import_vias
+  // (pcbir/kicad/import.hpp): the free via's Via id must not collide with
+  // the footprint's thru-hole-pad Via id, and its Pin id must not collide
+  // with the footprint's own Pin id -- both continue from the accumulated
+  // snapshot rather than each independently restarting at 1.
+  const SExpr root = parse_sexpr(FOOTPRINT_AND_VIA_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const FootprintImportResult footprints = import_footprints(root, stackup, nets);
+  REQUIRE(footprints.geometry.table<Via>().size() == 1);
+  REQUIRE(footprints.connectivity.table<Pin>().size() == 1);
+
+  const ViaImportResult vias =
+      import_vias(root, stackup, footprints.connectivity, footprints.geometry);
+
+  // Exactly 2 entries in each table, one of which is the footprint's own
+  // entry carried forward unchanged, is enough to prove the new free
+  // via/Pin got a non-colliding id: a table's entity ids are unique by
+  // construction, so a second entry alongside the carried-forward one
+  // cannot itself be a collision.
+  REQUIRE(vias.geometry.table<Via>().size() == 2);
+  REQUIRE(vias.connectivity.table<Pin>().size() == 2);
+  REQUIRE(table_contains_id<Via>(vias.geometry, only_id<Via>(footprints.geometry)));
+  REQUIRE(table_contains_id<Pin>(vias.connectivity, only_id<Pin>(footprints.connectivity)));
 }

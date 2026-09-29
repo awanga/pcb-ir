@@ -91,7 +91,8 @@ using geometry::Span;
 } // namespace
 
 geometry::GeometrySnapshot import_board_outline(const SExpr& kicad_pcb,
-                                                const stackup::StackupSnapshot& stackup) {
+                                                const stackup::StackupSnapshot& stackup,
+                                                const geometry::GeometrySnapshot& base) {
   core::EntityId edge_cuts_layer_id;
   stackup.table<stackup::Layer>().for_each([&](core::EntityId id, const stackup::Layer& layer) {
     if (layer.kind == stackup::LayerKind::EdgeCuts) {
@@ -111,7 +112,7 @@ geometry::GeometrySnapshot import_board_outline(const SExpr& kicad_pcb,
     }
   }
 
-  geometry::GeometryWorkspace workspace;
+  geometry::GeometryWorkspace workspace(base);
   for (geometry::Contour& loop : assemble_loops(std::move(edge_spans))) {
     workspace.insert(geometry::BoardOutline{
         .outline = geometry::Polygon{.outline = canonicalize_winding(std::move(loop)), .holes = {}},

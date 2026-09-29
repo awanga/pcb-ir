@@ -190,3 +190,30 @@ TEST_CASE("import_tracks throws when a segment's layer isn't recognized", "[kica
   const ConnectivitySnapshot nets = import_nets(root);
   REQUIRE_THROWS_AS(import_tracks(root, stackup, nets), ImportError);
 }
+
+TEST_CASE("import_tracks given a base snapshot continues its id space instead of restarting "
+          "at 1",
+          "[kicad][import]") {
+  // Mirrors how import_kicad_pcb chains composable passes together
+  // (pcbir/kicad/import.hpp).
+  const SExpr root = parse_sexpr(TRACK_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const GeometrySnapshot first = import_tracks(root, stackup, nets);
+  const GeometrySnapshot second = import_tracks(root, stackup, nets, first);
+
+  REQUIRE(first.table<Track>().size() == 3);
+  REQUIRE(second.table<Track>().size() == 6);
+
+  bool no_collision = true;
+  int seen_from_first = 0;
+  first.table<Track>().for_each([&](EntityId first_id, const Track&) {
+    int matches = 0;
+    second.table<Track>().for_each(
+        [&](EntityId second_id, const Track&) { matches += (second_id == first_id) ? 1 : 0; });
+    seen_from_first += matches;
+    no_collision = no_collision && matches <= 1;
+  });
+  REQUIRE(seen_from_first == 3); // every id from `first` carried forward unchanged
+  REQUIRE(no_collision);         // and none of the 3 new Tracks reused one of those ids
+}

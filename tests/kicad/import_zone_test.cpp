@@ -151,6 +151,32 @@ TEST_CASE("import_zones throws on a zone missing (polygon ...)", "[kicad][import
   REQUIRE_THROWS_AS(import_zones(root, stackup, nets), ImportError);
 }
 
+TEST_CASE("import_zones given a base snapshot continues its id space instead of restarting at 1",
+          "[kicad][import]") {
+  // Mirrors how import_kicad_pcb chains composable passes together
+  // (pcbir/kicad/import.hpp).
+  const SExpr root = parse_sexpr(ZONE_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const GeometrySnapshot first = import_zones(root, stackup, nets);
+  const GeometrySnapshot second = import_zones(root, stackup, nets, first);
+
+  REQUIRE(first.table<CopperPour>().size() == 3);
+  REQUIRE(second.table<CopperPour>().size() == 6);
+
+  bool no_collision = true;
+  int seen_from_first = 0;
+  first.table<CopperPour>().for_each([&](EntityId first_id, const CopperPour&) {
+    int matches = 0;
+    second.table<CopperPour>().for_each(
+        [&](EntityId second_id, const CopperPour&) { matches += (second_id == first_id) ? 1 : 0; });
+    seen_from_first += matches;
+    no_collision = no_collision && matches <= 1;
+  });
+  REQUIRE(seen_from_first == 3); // every id from `first` carried forward unchanged
+  REQUIRE(no_collision);         // and none of the 3 new CopperPours reused one of those ids
+}
+
 TEST_CASE("import_zones throws on an arc-cornered zone outline", "[kicad][import]") {
   const SExpr root = parse_sexpr(
       R"((kicad_pcb (layers (0 "F.Cu" signal))

@@ -32,12 +32,24 @@ struct ViaImportResult {
 // geometry::Via has no blind/microvia distinction to carry it in
 // (a known, small fidelity gap, not yet addressed by this pass).
 //
+// `geometry_base`, if given, seeds the internal GeometryWorkspace (default
+// empty, identical to prior behavior) so this pass's entities land in the
+// same id space as `geometry_base`'s rather than restarting at id 1 --
+// needed so import_kicad_pcb (pcbir/kicad/import.hpp) can chain every
+// composable pass into one consistent BoardSnapshot (core/workspace.hpp's
+// Workspace(base) constructor). `nets` already doubles as the connectivity
+// accumulation base the same way import_footprints' does (pcbir/kicad/
+// import_footprint.hpp): pass an already-accumulated connectivity snapshot
+// (e.g. import_footprints' own output) rather than import_nets's bare
+// output to continue Pin id allocation from where that pass left off.
+//
 // Throws ImportError (pcbir/kicad/import.hpp) on a malformed via (missing
 // (at/size/drill/layers ...)) or a layer/net reference that doesn't
 // resolve against `stackup`/`nets`.
 [[nodiscard]] ViaImportResult import_vias(const SExpr& kicad_pcb,
                                           const stackup::StackupSnapshot& stackup,
-                                          const connectivity::ConnectivitySnapshot& nets);
+                                          const connectivity::ConnectivitySnapshot& nets,
+                                          const geometry::GeometrySnapshot& geometry_base = {});
 
 } // namespace pcbir::kicad
 

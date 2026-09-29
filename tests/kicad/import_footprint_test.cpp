@@ -334,3 +334,40 @@ TEST_CASE("import_footprints throws when a footprint's own net table is missing 
   const ConnectivitySnapshot empty_nets = import_nets(parse_sexpr("(kicad_pcb)"));
   REQUIRE_THROWS_AS(import_footprints(root, stackup, empty_nets), ImportError);
 }
+
+TEST_CASE("import_footprints given a geometry_base continues its id space instead of "
+          "restarting at 1",
+          "[kicad][import]") {
+  // Mirrors how import_kicad_pcb chains composable passes together
+  // (pcbir/kicad/import.hpp): a prior pass's geometry (here, standing in
+  // for import_board_outline's output) must not have any of its ids
+  // reused by this pass's own new Pad/Via/Footprint entities.
+  const SExpr root = parse_sexpr(FRONT_FOOTPRINT_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+
+  const FootprintImportResult first = import_footprints(root, stackup, nets);
+  const FootprintImportResult second = import_footprints(root, stackup, nets, first.geometry);
+
+  REQUIRE(first.geometry.table<Footprint>().size() == 1);
+  REQUIRE(second.geometry.table<Footprint>().size() == 2);
+
+  const EntityId first_pad_id = only_footprint(first.geometry).pads.at(0);
+  bool first_pad_id_carried_forward = false;
+  bool no_new_entity_reuses_it = true;
+  second.geometry.table<Pad>().for_each([&](EntityId id, const Pad&) {
+    if (id == first_pad_id) {
+      first_pad_id_carried_forward = true;
+    }
+  });
+  second.geometry.table<Via>().for_each([&](EntityId id, const Via&) {
+    no_new_entity_reuses_it = no_new_entity_reuses_it && (id != first_pad_id);
+  });
+  int footprints_matching_first_pad = 0;
+  second.geometry.table<Footprint>().for_each([&](EntityId id, const Footprint&) {
+    footprints_matching_first_pad += (id == first_pad_id) ? 1 : 0;
+  });
+  REQUIRE(first_pad_id_carried_forward);
+  REQUIRE(no_new_entity_reuses_it);
+  REQUIRE(footprints_matching_first_pad == 0);
+}

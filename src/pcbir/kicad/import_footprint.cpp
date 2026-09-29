@@ -261,10 +261,11 @@ import_pad(const SExpr& pad,
 
 FootprintImportResult import_footprints(const SExpr& kicad_pcb,
                                         const stackup::StackupSnapshot& stackup,
-                                        const connectivity::ConnectivitySnapshot& nets) {
+                                        const connectivity::ConnectivitySnapshot& nets,
+                                        const geometry::GeometrySnapshot& geometry_base) {
   const std::map<std::string, core::EntityId> net_index = build_net_index(nets);
 
-  geometry::GeometryWorkspace geometry_workspace;
+  geometry::GeometryWorkspace geometry_workspace(geometry_base);
   connectivity::ConnectivityWorkspace connectivity_workspace(nets);
 
   for (const SExpr* footprint : find_all_children(kicad_pcb, "footprint")) {

@@ -48,13 +48,27 @@ struct FootprintImportResult {
 // or a primitive kind other than gr_poly) is Unsupported and throws
 // ImportError rather than being silently approximated.
 //
+// `geometry_base`, if given, seeds the internal GeometryWorkspace (default
+// empty, identical to prior behavior) so this pass's entities land in the
+// same id space as `geometry_base`'s rather than restarting at id 1 --
+// needed so import_kicad_pcb (pcbir/kicad/import.hpp) can chain every
+// composable pass into one consistent BoardSnapshot (core/workspace.hpp's
+// Workspace(base) constructor). `nets` already doubles as the connectivity
+// accumulation base the same way: passing an already-accumulated
+// connectivity snapshot (one that itself carries forward Pins a prior pass
+// created) rather than import_nets's bare output continues Pin id
+// allocation from where that pass left off, since build_net_index
+// (coordinate_util.hpp) only ever reads `nets`' Net table and ignores any
+// Pins already present in it.
+//
 // Throws ImportError (pcbir/kicad/import.hpp) on a malformed footprint/pad
 // (missing required field, unrecognized pad type/shape, a layer/net
 // reference that doesn't resolve against `stackup`/`nets`).
 [[nodiscard]] FootprintImportResult
 import_footprints(const SExpr& kicad_pcb,
                   const stackup::StackupSnapshot& stackup,
-                  const connectivity::ConnectivitySnapshot& nets);
+                  const connectivity::ConnectivitySnapshot& nets,
+                  const geometry::GeometrySnapshot& geometry_base = {});
 
 } // namespace pcbir::kicad
 

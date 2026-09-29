@@ -27,7 +27,15 @@ namespace pcbir::kicad {
 //
 // Only board-outline geometry is imported here -- footprints, pads,
 // tracks, vias, and zones are separate, larger pieces of the importer
-// (docs/rfcs/0003-kicad-importer-exporter.md) not yet built.
+// (docs/rfcs/0003-kicad-importer-exporter.md).
+//
+// `base`, if given, seeds the internal GeometryWorkspace (default empty,
+// identical to prior behavior) so this pass's entities land in the same
+// id space as `base`'s rather than restarting at id 1 -- needed so
+// import_kicad_pcb (pcbir/kicad/import.hpp) can chain every composable
+// pass into one consistent BoardSnapshot without colliding ids (each
+// pass's Workspace otherwise allocates independently from 1; see
+// core/workspace.hpp's Workspace(base) constructor).
 //
 // Throws ImportError (pcbir/kicad/import.hpp) if `stackup` has no
 // Edge.Cuts layer, if a `(gr_arc ...)`'s three points are collinear (no
@@ -35,7 +43,9 @@ namespace pcbir::kicad {
 // only closed loops (a dangling/open edge is malformed input, never
 // silently dropped).
 [[nodiscard]] geometry::GeometrySnapshot
-import_board_outline(const SExpr& kicad_pcb, const stackup::StackupSnapshot& stackup);
+import_board_outline(const SExpr& kicad_pcb,
+                     const stackup::StackupSnapshot& stackup,
+                     const geometry::GeometrySnapshot& base = {});
 
 } // namespace pcbir::kicad
 

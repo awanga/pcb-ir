@@ -121,10 +121,11 @@ resolve_zone_layers(const SExpr& zone, const stackup::StackupSnapshot& stackup) 
 
 geometry::GeometrySnapshot import_zones(const SExpr& kicad_pcb,
                                         const stackup::StackupSnapshot& stackup,
-                                        const connectivity::ConnectivitySnapshot& nets) {
+                                        const connectivity::ConnectivitySnapshot& nets,
+                                        const geometry::GeometrySnapshot& base) {
   const std::map<std::string, core::EntityId> net_index = build_net_index(nets);
 
-  geometry::GeometryWorkspace workspace;
+  geometry::GeometryWorkspace workspace(base);
   for (const SExpr* zone : find_all_children(kicad_pcb, "zone")) {
     const Polygon outline = parse_zone_outline(*zone);
     const core::EntityId net_id = resolve_optional_net(*zone, net_index);

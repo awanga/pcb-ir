@@ -180,3 +180,34 @@ TEST_CASE("import_board_outline produces no BoardOutline when there is no Edge.C
 
   REQUIRE(snapshot.table<BoardOutline>().size() == 0);
 }
+
+TEST_CASE("import_board_outline given a base snapshot continues its id space instead of "
+          "restarting at 1",
+          "[kicad][import]") {
+  // Mirrors how import_kicad_pcb chains composable passes together
+  // (pcbir/kicad/import.hpp): calling a pass a second time with the first
+  // call's result as `base` must not reuse any id the first call already
+  // handed out.
+  const pcbir::kicad::SExpr root = parse_sexpr(RECT_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const GeometrySnapshot first = import_board_outline(root, stackup);
+  const GeometrySnapshot second = import_board_outline(root, stackup, first);
+
+  REQUIRE(first.table<BoardOutline>().size() == 1);
+  REQUIRE(second.table<BoardOutline>().size() == 2);
+
+  EntityId first_id;
+  first.table<BoardOutline>().for_each([&](EntityId id, const BoardOutline&) { first_id = id; });
+
+  bool second_call_id_present = false;
+  bool no_collision = true;
+  second.table<BoardOutline>().for_each([&](EntityId id, const BoardOutline&) {
+    if (id == first_id) {
+      second_call_id_present = true;
+    } else {
+      no_collision = no_collision && (id != first_id);
+    }
+  });
+  REQUIRE(second_call_id_present); // the base's own BoardOutline carried forward unchanged
+  REQUIRE(no_collision);           // the new BoardOutline got a fresh, non-colliding id
+}

@@ -27,6 +27,13 @@ namespace pcbir::kicad {
 // `nets` must already contain every Net a zone might reference by name
 // (import_nets's output).
 //
+// `base`, if given, seeds the internal GeometryWorkspace (default empty,
+// identical to prior behavior) so this pass's entities land in the same
+// id space as `base`'s rather than restarting at id 1 -- needed so
+// import_kicad_pcb (pcbir/kicad/import.hpp) can chain every composable
+// pass into one consistent BoardSnapshot without colliding ids
+// (core/workspace.hpp's Workspace(base) constructor).
+//
 // Throws ImportError (pcbir/kicad/import.hpp) on a malformed zone
 // (missing (layer.../layers ...) or (polygon (pts ...))), a `(pts ...)`
 // entry other than `(xy X Y)` (e.g. an arc-cornered zone outline --
@@ -35,7 +42,8 @@ namespace pcbir::kicad {
 [[nodiscard]] geometry::GeometrySnapshot
 import_zones(const SExpr& kicad_pcb,
              const stackup::StackupSnapshot& stackup,
-             const connectivity::ConnectivitySnapshot& nets);
+             const connectivity::ConnectivitySnapshot& nets,
+             const geometry::GeometrySnapshot& base = {});
 
 } // namespace pcbir::kicad
 
