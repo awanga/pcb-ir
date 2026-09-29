@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/kicad/import.hpp"
 
+#include "pcbir/board_snapshot.hpp"
+#include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/serialize.hpp"
+#include "pcbir/kicad/import_footprint.hpp"
+#include "pcbir/kicad/import_geometry.hpp"
+#include "pcbir/kicad/import_nets.hpp"
+#include "pcbir/kicad/import_track.hpp"
+#include "pcbir/kicad/import_via.hpp"
+#include "pcbir/kicad/import_zone.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/layer.hpp"
 #include "pcbir/stackup/layer_stack.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <ios>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -47,6 +60,69 @@ struct KicadLayerRow {
 }
 
 } // namespace
+
+namespace {
+
+// The minimum KiCad board-format version (KiCad's own field, not PCB-IR's
+// FormatVersion) import_kicad_pcb accepts -- see import.hpp's own doc
+// comment and docs/rfcs/0003-kicad-importer-exporter.md's "Target version
+// pin". Below this, the file predates the version this importer was
+// verified against real pcbnew output for, and is rejected with a
+// diagnostic rather than attempted with best-effort parsing.
+constexpr int64_t MIN_SUPPORTED_KICAD_VERSION = 20260206;
+
+[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
+  const std::ifstream file(path, std::ios::binary);
+  if (!file) {
+    throw ImportError("failed to open '" + path.string() + "'");
+  }
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  return buffer.str();
+}
+
+void validate_kicad_pcb_root(const SExpr& root) {
+  if (!root.is_list() || root.children.empty() || !root.children.front().is_symbol() ||
+      root.children.front().text != "kicad_pcb") {
+    throw ImportError("not a valid .kicad_pcb file: expected a top-level (kicad_pcb ...) list");
+  }
+  const SExpr* version_node = find_child(root, "version");
+  if (version_node == nullptr || version_node->children.size() < 2) {
+    throw ImportError("malformed .kicad_pcb file: missing (version ...)");
+  }
+  const int64_t version = parse_i64(version_node->children.at(1));
+  if (version < MIN_SUPPORTED_KICAD_VERSION) {
+    throw ImportError("unsupported .kicad_pcb version " + std::to_string(version) +
+                      "; this importer requires >= " + std::to_string(MIN_SUPPORTED_KICAD_VERSION) +
+                      " (KiCad 10)");
+  }
+}
+
+} // namespace
+
+pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path) {
+  const SExpr root = parse_sexpr(read_file(path));
+  validate_kicad_pcb_root(root);
+
+  const stackup::StackupSnapshot stackup = import_stackup(root);
+  const connectivity::ConnectivitySnapshot nets = import_nets(root);
+
+  const geometry::GeometrySnapshot after_outline = import_board_outline(root, stackup);
+  const FootprintImportResult after_footprints =
+      import_footprints(root, stackup, nets, after_outline);
+  const geometry::GeometrySnapshot after_tracks =
+      import_tracks(root, stackup, after_footprints.connectivity, after_footprints.geometry);
+  ViaImportResult after_vias =
+      import_vias(root, stackup, after_footprints.connectivity, after_tracks);
+  geometry::GeometrySnapshot final_geometry =
+      import_zones(root, stackup, after_vias.connectivity, after_vias.geometry);
+
+  pcbir::BoardSnapshot board;
+  board.geometry = std::move(final_geometry);
+  board.connectivity = std::move(after_vias.connectivity);
+  board.stackup = stackup;
+  return board;
+}
 
 stackup::StackupSnapshot import_stackup(const SExpr& kicad_pcb) {
   const SExpr* layers_section = find_child(kicad_pcb, "layers");

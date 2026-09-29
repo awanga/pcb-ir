@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/net.hpp"
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
@@ -30,6 +31,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <ios>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -37,18 +42,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using pcbir::BoardSnapshot;
 using pcbir::connectivity::ConnectivitySnapshot;
 using pcbir::connectivity::ConnectivityWorkspace;
 using pcbir::connectivity::Net;
 using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
 using pcbir::kicad::export_board_outline;
+using pcbir::kicad::export_kicad_pcb;
 using pcbir::kicad::export_layers_section;
 using pcbir::kicad::export_tracks;
 using pcbir::kicad::export_vias;
 using pcbir::kicad::export_zones;
 using pcbir::kicad::ExportError;
 using pcbir::kicad::import_board_outline;
+using pcbir::kicad::import_kicad_pcb;
 using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
 using pcbir::kicad::import_tracks;
@@ -619,4 +627,126 @@ TEST_CASE("export_zones throws when a CopperPour outline contains an Arc span", 
   const GeometrySnapshot original = geometry_workspace.commit();
 
   REQUIRE_THROWS_AS(export_zones(original, stackup, nets), ExportError);
+}
+
+namespace {
+
+[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
+  const std::ifstream file(path, std::ios::binary);
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  return buffer.str();
+}
+
+[[nodiscard]] BoardOutline rectangle_outline(EntityId edge_cuts_layer) {
+  return BoardOutline{
+      .outline =
+          Polygon{
+              .outline =
+                  Contour{
+                      .spans =
+                          {
+                              Span{Segment{.start = {.x = 0, .y = 0},
+                                           .end = {.x = 20'000'000, .y = 0}}},
+                              Span{Segment{.start = {.x = 20'000'000, .y = 0},
+                                           .end = {.x = 20'000'000, .y = 20'000'000}}},
+                              Span{Segment{.start = {.x = 20'000'000, .y = 20'000'000},
+                                           .end = {.x = 0, .y = 20'000'000}}},
+                              Span{Segment{.start = {.x = 0, .y = 20'000'000},
+                                           .end = {.x = 0, .y = 0}}},
+                          },
+                  },
+              .holes = {},
+          },
+      .layer = edge_cuts_layer};
+}
+
+} // namespace
+
+TEST_CASE("export_kicad_pcb writes the expected wrapper fields and reimports with matching "
+          "entity counts via import_kicad_pcb",
+          "[kicad][export]") {
+  const StackupSnapshot stackup = two_layer_stackup();
+  const EntityId front_copper = find_layer_id(stackup, "F.Cu");
+  const EntityId back_copper = find_layer_id(stackup, "B.Cu");
+  const EntityId edge_cuts = find_layer_id(stackup, "Edge.Cuts");
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(rectangle_outline(edge_cuts));
+  const auto via_handle =
+      geometry_workspace.insert(Via{.position = {.x = 5'000'000, .y = 5'000'000},
+                                    .drill_diameter_nm = 400'000,
+                                    .finished_hole_diameter_nm = 400'000,
+                                    .pad_diameter_nm = 800'000,
+                                    .start_layer = front_copper,
+                                    .end_layer = back_copper,
+                                    .pad_number = ""});
+  const EntityId via_id = geometry_workspace.table<Via>().id_of(via_handle);
+  geometry_workspace.insert(
+      Track{.path = Path{.spans = {WidthSpan{
+                             .geometry = Span{Segment{.start = {.x = 0, .y = 0},
+                                                      .end = {.x = 5'000'000, .y = 5'000'000}}},
+                             .width_nm = 250'000}}},
+            .layer = front_copper,
+            .net = EntityId{}});
+  geometry_workspace.insert(CopperPour{
+      .outline =
+          Polygon{.outline =
+                      Contour{.spans = {Span{Segment{.start = {.x = 0, .y = 0},
+                                                     .end = {.x = 20'000'000, .y = 0}}},
+                                        Span{Segment{.start = {.x = 20'000'000, .y = 0},
+                                                     .end = {.x = 20'000'000, .y = 20'000'000}}},
+                                        Span{Segment{.start = {.x = 20'000'000, .y = 20'000'000},
+                                                     .end = {.x = 0, .y = 20'000'000}}},
+                                        Span{Segment{.start = {.x = 0, .y = 20'000'000},
+                                                     .end = {.x = 0, .y = 0}}}}},
+                  .holes = {}},
+      .layer = front_copper,
+      .net = EntityId{}});
+
+  BoardSnapshot board;
+  board.stackup = stackup;
+  board.geometry = geometry_workspace.commit();
+
+  ConnectivityWorkspace connectivity_workspace;
+  const auto gnd_handle = connectivity_workspace.insert(Net{.name = "GND"});
+  const EntityId gnd = connectivity_workspace.table<Net>().id_of(gnd_handle);
+  connectivity_workspace.insert(Pin{.pad = via_id, .net = gnd});
+  board.connectivity = connectivity_workspace.commit();
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "pcbir_export_kicad_pcb_test.kicad_pcb";
+  export_kicad_pcb(board, path);
+
+  const std::string text = read_file(path);
+  REQUIRE(text.find("(version 20260206)") != std::string::npos);
+  REQUIRE(text.find(R"((generator "pcbir"))") != std::string::npos);
+  REQUIRE(text.find("(embedded_fonts no)") != std::string::npos);
+
+  const BoardSnapshot reimported = import_kicad_pcb(path);
+  REQUIRE(reimported.geometry.table<BoardOutline>().size() == 1);
+  REQUIRE(reimported.geometry.table<Via>().size() == 1);
+  REQUIRE(reimported.geometry.table<Track>().size() == 1);
+  REQUIRE(reimported.geometry.table<CopperPour>().size() == 1);
+  REQUIRE(reimported.connectivity.table<Net>().size() == 1);
+}
+
+TEST_CASE("export_kicad_pcb propagates ExportError from an underlying export_* piece",
+          "[kicad][export]") {
+  BoardSnapshot board;
+  board.stackup = two_layer_stackup();
+
+  GeometryWorkspace geometry_workspace;
+  geometry_workspace.insert(
+      Track{.path = Path{.spans = {WidthSpan{
+                             .geometry = Span{Segment{.start = {.x = 0, .y = 0},
+                                                      .end = {.x = 1'000'000, .y = 1'000'000}}},
+                             .width_nm = 200'000}}},
+            .layer = EntityId{999'999}, // not present in board.stackup
+            .net = EntityId{}});
+  board.geometry = geometry_workspace.commit();
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "pcbir_export_kicad_pcb_error_test.kicad_pcb";
+  REQUIRE_THROWS_AS(export_kicad_pcb(board, path), ExportError);
 }

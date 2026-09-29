@@ -2,11 +2,13 @@
 #ifndef PCBIR_KICAD_EXPORT_HPP
 #define PCBIR_KICAD_EXPORT_HPP
 
+#include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -113,6 +115,22 @@ public:
 [[nodiscard]] std::vector<SExpr> export_zones(const geometry::GeometrySnapshot& geometry,
                                               const stackup::StackupSnapshot& stackup,
                                               const connectivity::ConnectivitySnapshot& nets);
+
+// The top-level orchestrator: assembles every per-entity export_* piece's
+// nodes into one `(kicad_pcb ...)` root expression -- version/generator/
+// general/paper/layers/setup wrapper fields (verified against a real
+// pcbnew-authored board, tests/corpus/kicad/rounded-rect-outline/
+// board.kicad_pcb), then board outline, footprints, tracks, free vias, and
+// zones in that order, matching real pcbnew's own section ordering -- and
+// writes the result to `path` via write_sexpr (pcbir/kicad/sexpr.hpp).
+// `board.extensions`/`board.passthrough_blobs` have no KiCad export path
+// yet and are ignored. The importer's inverse: import_kicad_pcb
+// (pcbir/kicad/import.hpp).
+//
+// Throws ExportError for anything any individual export_* piece above
+// would throw for this snapshot's content, or if `path` can't be opened
+// for writing.
+void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::path& path);
 
 } // namespace pcbir::kicad
 

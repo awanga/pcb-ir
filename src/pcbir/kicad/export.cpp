@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pcbir/kicad/export.hpp"
 
+#include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/format_version.hpp"
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
@@ -14,6 +16,7 @@
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/geometry/track.hpp"
 #include "pcbir/geometry/via.hpp"
+#include "pcbir/kicad/export_footprint.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/kicad/units.hpp"
 #include "pcbir/stackup/layer.hpp"
@@ -22,6 +25,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <ios>
 #include <map>
 #include <optional>
 #include <string>
@@ -337,6 +343,73 @@ std::vector<SExpr> export_zones(const geometry::GeometrySnapshot& geometry,
         nodes.push_back(export_zone_entry(pour, layer, net_field(nets, pour.net), id));
       });
   return nodes;
+}
+
+namespace {
+
+// This importer/exporter's pinned KiCad board-format version (import.hpp's
+// own MIN_SUPPORTED_KICAD_VERSION) -- every file this exporter writes
+// declares exactly the version it was verified against, never an older or
+// newer one.
+constexpr int64_t EXPORTED_KICAD_VERSION = 20260206;
+
+// A board's overall thickness has no PCB-IR representation (stackup only
+// tracks each individual Layer's own thickness_nm, never a top-level sum) --
+// the same "field KiCad has, schema doesn't" shape as
+// DEFAULT_EDGE_STROKE_WIDTH_MM above, fixed to the value real pcbnew output
+// uses for a simple 2-layer board (tests/corpus/kicad/rounded-rect-outline/
+// board.kicad_pcb).
+constexpr const char* DEFAULT_BOARD_THICKNESS_MM = "1.6";
+
+[[nodiscard]] SExpr general_section() {
+  return tagged("general", {tagged("thickness", {sym(DEFAULT_BOARD_THICKNESS_MM)})});
+}
+
+// A minimal but valid `(setup ...)` -- real pcbnew output carries a much
+// larger block (plot params, tenting, ...), none of which PCB-IR's schema
+// has a representation for; pcbnew fills in its own defaults for whatever
+// a loaded file's (setup ...) omits, so this doesn't lose information PCB-
+// IR ever had, only KiCad-tool-preference data PCB-IR never captured in
+// the first place (Unsupported, not Approximated -- there is no source
+// value to approximate towards).
+[[nodiscard]] SExpr minimal_setup_section() {
+  return tagged("setup", {tagged("pad_to_mask_clearance", {sym("0")})});
+}
+
+void extend(std::vector<SExpr>& dest, std::vector<SExpr> src) {
+  dest.reserve(dest.size() + src.size());
+  for (SExpr& node : src) {
+    dest.push_back(std::move(node));
+  }
+}
+
+} // namespace
+
+void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::path& path) {
+  std::vector<SExpr> children;
+  children.push_back(tagged("version", {sym(std::to_string(EXPORTED_KICAD_VERSION))}));
+  children.push_back(tagged("generator", {str("pcbir")}));
+  children.push_back(tagged("generator_version",
+                            {str(std::to_string(pcbir::CURRENT_FORMAT_VERSION.major) + "." +
+                                 std::to_string(pcbir::CURRENT_FORMAT_VERSION.minor))}));
+  children.push_back(general_section());
+  children.push_back(tagged("paper", {str("A4")}));
+  children.push_back(export_layers_section(board.stackup));
+  children.push_back(minimal_setup_section());
+
+  extend(children, export_board_outline(board.geometry, board.stackup));
+  extend(children, export_footprints(board.geometry, board.stackup, board.connectivity));
+  extend(children, export_tracks(board.geometry, board.stackup, board.connectivity));
+  extend(children, export_vias(board.geometry, board.stackup, board.connectivity));
+  extend(children, export_zones(board.geometry, board.stackup, board.connectivity));
+
+  children.push_back(tagged("embedded_fonts", {sym("no")}));
+
+  std::ofstream file(path, std::ios::binary);
+  if (!file) {
+    throw ExportError("failed to open '" + path.string() + "' for writing");
+  }
+  file << write_sexpr(tagged("kicad_pcb", std::move(children)));
 }
 
 } // namespace pcbir::kicad

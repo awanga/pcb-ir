@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "pcbir/board_snapshot.hpp"
+#include "pcbir/connectivity/net.hpp"
+#include "pcbir/connectivity/pin.hpp"
+#include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/geometry/board_outline.hpp"
+#include "pcbir/geometry/copper_pour.hpp"
+#include "pcbir/geometry/footprint.hpp"
+#include "pcbir/geometry/pad.hpp"
+#include "pcbir/geometry/serialize.hpp"
+#include "pcbir/geometry/track.hpp"
+#include "pcbir/geometry/via.hpp"
 #include "pcbir/kicad/import.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/layer.hpp"
@@ -8,11 +19,18 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <ios>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
+using pcbir::BoardSnapshot;
+using pcbir::connectivity::Net;
+using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
+using pcbir::kicad::import_kicad_pcb;
 using pcbir::kicad::import_stackup;
 using pcbir::kicad::ImportError;
 using pcbir::kicad::parse_sexpr;
@@ -20,6 +38,13 @@ using pcbir::stackup::Layer;
 using pcbir::stackup::LayerKind;
 using pcbir::stackup::LayerStack;
 using pcbir::stackup::StackupSnapshot;
+
+using pcbir::geometry::BoardOutline;
+using pcbir::geometry::CopperPour;
+using pcbir::geometry::Footprint;
+using pcbir::geometry::Pad;
+using pcbir::geometry::Track;
+using pcbir::geometry::Via;
 
 namespace {
 
@@ -68,6 +93,42 @@ constexpr const char* FOUR_LAYER_BOARD = R"(
   snapshot.table<LayerStack>().for_each(
       [&](EntityId, const LayerStack& candidate) { result = &candidate; });
   return result;
+}
+
+// A small but complete board exercising every composable import_kicad_pcb
+// pass at once (board outline, a footprint with one SMD pad and one
+// thru-hole pad, a track, a free via, a zone, and 2 nets) -- enough to
+// prove the orchestrator threads every pass's output into the next
+// without colliding ids (pcbir/kicad/import.hpp), not a substitute for
+// the per-pass fixtures each import_*_test.cpp already covers in depth.
+constexpr const char* FULL_BOARD = R"(
+  (kicad_pcb
+    (version 20260206)
+    (layers
+      (0 "F.Cu" signal)
+      (2 "B.Cu" signal)
+      (25 "Edge.Cuts" user)
+    )
+    (gr_line (start 0 0) (end 20 0) (layer "Edge.Cuts"))
+    (gr_line (start 20 0) (end 20 20) (layer "Edge.Cuts"))
+    (gr_line (start 20 20) (end 0 20) (layer "Edge.Cuts"))
+    (gr_line (start 0 20) (end 0 0) (layer "Edge.Cuts"))
+    (footprint "" (layer "F.Cu") (at 5 5)
+      (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net "SIG1"))
+      (pad "2" thru_hole circle (at 1 0) (size 1 1) (drill 0.5) (layers "*.Cu") (net "GND"))
+    )
+    (segment (start 5 5) (end 10 10) (width 0.25) (layer "F.Cu") (net "SIG1"))
+    (via (at 15 15) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net "GND"))
+    (zone (net "GND") (layer "B.Cu") (polygon (pts (xy 0 0) (xy 20 0) (xy 20 20) (xy 0 20))))
+  )
+)";
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+[[nodiscard]] std::filesystem::path write_temp_kicad_pcb(const char* text, const char* filename) {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / filename;
+  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  file << text;
+  return path;
 }
 
 } // namespace
@@ -220,4 +281,71 @@ TEST_CASE("import_stackup produces no LayerStack when no Copper layer is present
   const StackupSnapshot snapshot = import_stackup(root);
 
   REQUIRE(snapshot.table<LayerStack>().size() == 0);
+}
+
+TEST_CASE("import_kicad_pcb assembles every composable pass into one consistent BoardSnapshot",
+          "[kicad][import]") {
+  const std::filesystem::path path =
+      write_temp_kicad_pcb(FULL_BOARD, "pcbir_import_kicad_pcb_full_test.kicad_pcb");
+  const BoardSnapshot board = import_kicad_pcb(path);
+
+  REQUIRE(board.geometry.table<BoardOutline>().size() == 1);
+  REQUIRE(board.geometry.table<Footprint>().size() == 1);
+  REQUIRE(board.geometry.table<Pad>().size() == 1);
+  REQUIRE(board.geometry.table<Via>().size() == 2); // 1 thru-hole pad + 1 free via
+  REQUIRE(board.geometry.table<Track>().size() == 1);
+  REQUIRE(board.geometry.table<CopperPour>().size() == 1);
+  REQUIRE(board.connectivity.table<Net>().size() == 2); // SIG1, GND
+  REQUIRE(board.connectivity.table<Pin>().size() == 3); // 2 footprint pads + 1 free via
+}
+
+TEST_CASE("import_kicad_pcb's Footprint member ids each resolve to exactly one of the Pad/Via "
+          "tables, never both",
+          "[kicad][import]") {
+  // The load-bearing regression check for the id-space-collision bug this
+  // orchestrator exists to avoid (pcbir/kicad/import_geometry.hpp's own
+  // doc comment): if two passes' entities ever collided on the same id,
+  // a Footprint's own member id could spuriously resolve in *both* the
+  // Pad and Via tables at once.
+  const std::filesystem::path path =
+      write_temp_kicad_pcb(FULL_BOARD, "pcbir_import_kicad_pcb_membership_test.kicad_pcb");
+  const BoardSnapshot board = import_kicad_pcb(path);
+
+  const Footprint* footprint = nullptr;
+  board.geometry.table<Footprint>().for_each(
+      [&](EntityId, const Footprint& candidate) { footprint = &candidate; });
+  REQUIRE(footprint != nullptr);
+  REQUIRE(footprint->pads.size() == 2);
+
+  const auto& pads = board.geometry.table<Pad>();
+  const auto& vias = board.geometry.table<Via>();
+  bool every_member_resolves_exactly_once = true;
+  for (const EntityId member_id : footprint->pads) {
+    const bool is_pad = pads.try_get(pads.find(member_id)) != nullptr;
+    const bool is_via = vias.try_get(vias.find(member_id)) != nullptr;
+    every_member_resolves_exactly_once = every_member_resolves_exactly_once && (is_pad != is_via);
+  }
+  REQUIRE(every_member_resolves_exactly_once);
+}
+
+TEST_CASE("import_kicad_pcb throws ImportError on a KiCad version below the pinned minimum",
+          "[kicad][import]") {
+  const std::filesystem::path path = write_temp_kicad_pcb(
+      R"((kicad_pcb (version 20211014) (layers (0 "F.Cu" signal) (2 "B.Cu" signal))))",
+      "pcbir_import_kicad_pcb_old_version_test.kicad_pcb");
+  REQUIRE_THROWS_AS(import_kicad_pcb(path), ImportError);
+}
+
+TEST_CASE("import_kicad_pcb throws ImportError when the file has no (kicad_pcb ...) root",
+          "[kicad][import]") {
+  const std::filesystem::path path =
+      write_temp_kicad_pcb("(not_kicad_pcb)", "pcbir_import_kicad_pcb_wrong_root_test.kicad_pcb");
+  REQUIRE_THROWS_AS(import_kicad_pcb(path), ImportError);
+}
+
+TEST_CASE("import_kicad_pcb throws ImportError when the file can't be opened", "[kicad][import]") {
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "pcbir_import_kicad_pcb_does_not_exist.kicad_pcb";
+  std::filesystem::remove(path);
+  REQUIRE_THROWS_AS(import_kicad_pcb(path), ImportError);
 }

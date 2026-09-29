@@ -2,9 +2,11 @@
 #ifndef PCBIR_KICAD_IMPORT_HPP
 #define PCBIR_KICAD_IMPORT_HPP
 
+#include "pcbir/board_snapshot.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 
@@ -42,6 +44,29 @@ public:
 //
 // Throws ImportError if `kicad_pcb` has no `(layers ...)` section at all.
 [[nodiscard]] stackup::StackupSnapshot import_stackup(const SExpr& kicad_pcb);
+
+// The top-level orchestrator: reads `path`, parses it (see parse_sexpr),
+// and assembles the composable per-entity passes (import_stackup,
+// import_nets, import_board_outline, import_footprints, import_tracks,
+// import_vias, import_zones) into one consistent pcbir::BoardSnapshot,
+// threading each pass's geometry/connectivity output into the next as its
+// `base`/`nets` argument (pcbir/kicad/import_geometry.hpp and siblings)
+// so every entity across every pass lands in one shared id space rather
+// than colliding (each pass's Workspace otherwise starts counting from 1
+// independently -- see core/workspace.hpp's Workspace(base) constructor).
+// Passes run in the fixed order: board outline, footprints, tracks, free
+// vias, zones. `BoardSnapshot::extensions` collects every
+// PCBIR_KICAD/pad_shape extension import_footprints produced
+// (pcbir/kicad/import_footprint.hpp); `passthrough_blobs` is always empty
+// (this importer has no opaque-passthrough concept yet).
+//
+// Throws ImportError if `path` can't be opened/read, if its content isn't
+// a `(kicad_pcb ...)` root expression, or if its `(version ...)` is below
+// this importer's pinned minimum (docs/rfcs/0003-kicad-importer-exporter.md
+// -- "Target version pin"; older KiCad versions are out of scope, rejected
+// with a diagnostic rather than best-effort parsed) -- or anything any
+// individual pass above would throw for this file's content.
+[[nodiscard]] pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path);
 
 } // namespace pcbir::kicad
 
