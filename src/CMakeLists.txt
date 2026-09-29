@@ -79,6 +79,7 @@ add_library(pcbir_core
   pcbir/kicad/import_geometry.cpp
   pcbir/kicad/import_nets.cpp
   pcbir/kicad/pad_shape.cpp
+  pcbir/kicad/pad_shape_extension.cpp
   pcbir/kicad/import_footprint.cpp
   pcbir/kicad/import_track.cpp
   pcbir/kicad/import_via.cpp

@@ -3,10 +3,12 @@
 #define PCBIR_KICAD_EXPORT_FOOTPRINT_HPP
 
 #include "pcbir/connectivity/serialize.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <span>
 #include <vector>
 
 namespace pcbir::kicad {
@@ -23,26 +25,31 @@ namespace pcbir::kicad {
 // separate un-mirroring step is needed for position; see coordinate_util.
 // hpp's own comment on footprint_local_point for the full reasoning.
 //
-// Pad shape: every Pad is exported as a KiCad `custom`-shape pad (never
-// the original rect/circle/oval/roundrect/trapezoid primitive) --
-// geometry::Pad stores only an already-resolved outline Polygon, with no
-// shape-parameter field to recover the original primitive from (RFC
-// 0003's own documented "Pad shape fidelity" gap; the proposed
-// PCBIR_KICAD/pad_shape extension that would close it isn't implemented
-// yet). The custom pad's `(primitives (gr_poly (pts ...)))` is built
-// directly from the pad's absolute outline offset by its own absolute
-// center, needing no footprint-rotation inversion at all (verified
-// against real pcbnew output: a custom pad's own `(at x y)` angle field
-// controls primitive rotation independently of its shape, so emitting
-// angle 0 and already-placed-relative-to-center primitive points
+// Pad shape: a Pad whose id has a matching PCBIR_KICAD/pad_shape entry in
+// `extensions` (src/pcbir/kicad/pad_shape_extension.hpp; produced by
+// import_footprints for every non-custom-shape pad) is exported as the
+// real original rect/circle/oval/roundrect/trapezoid primitive, recovered
+// exactly from the extension's payload -- **Preserved**. Every other Pad
+// (no extension present, e.g. it was originally a `custom` shape, or the
+// caller passed no extensions at all) falls back to a KiCad `custom`-
+// shape pad instead -- geometry::Pad stores only an already-resolved
+// outline Polygon, with no shape-parameter field of its own to recover a
+// parametric primitive from (RFC 0003's own documented "Pad shape
+// fidelity" gap). The custom pad's `(primitives (gr_poly (pts ...)))` is
+// built directly from the pad's absolute outline offset by its own
+// absolute center, needing no footprint-rotation inversion at all
+// (verified against real pcbnew output: a custom pad's own `(at x y)`
+// angle field controls primitive rotation independently of its shape, so
+// emitting angle 0 and already-placed-relative-to-center primitive points
 // reproduces the exact original absolute shape once reloaded). An Arc
 // span in a pad's outline (circle/oval/roundrect pads all produce these)
 // is flattened to chords (coordinate_util.hpp's flatten_arc) since
 // KiCad's `gr_poly` primitive supports only straight edges -- the same
 // documented best-effort approximation geometry::boolean_op already uses
-// at the Clipper2 boundary. This makes pad shape **Approximated**, not
-// Preserved, on this pass: geometrically correct copper, but reported as
-// a generic custom shape rather than "this was authored as a rect".
+// at the Clipper2 boundary. This fallback path makes pad shape
+// **Approximated**, not Preserved: geometrically correct copper, but
+// reported as a generic custom shape rather than "this was authored as a
+// rect".
 //
 // Pad/Via net: resolved via each entity's connectivity::Pin (neither
 // geometry::Pad nor geometry::Via stores a net field directly).
@@ -60,7 +67,8 @@ namespace pcbir::kicad {
 // `nets`.
 [[nodiscard]] std::vector<SExpr> export_footprints(const geometry::GeometrySnapshot& geometry,
                                                    const stackup::StackupSnapshot& stackup,
-                                                   const connectivity::ConnectivitySnapshot& nets);
+                                                   const connectivity::ConnectivitySnapshot& nets,
+                                                   std::span<const Extension> extensions = {});
 
 } // namespace pcbir::kicad
 

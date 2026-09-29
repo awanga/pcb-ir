@@ -39,6 +39,7 @@ add_executable(pcbir_tests
   kicad/export_test.cpp
   kicad/export_footprint_test.cpp
   kicad/pad_shape_test.cpp
+  kicad/pad_shape_extension_test.cpp
   kicad/corpus_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)

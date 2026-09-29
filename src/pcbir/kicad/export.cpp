@@ -398,7 +398,8 @@ void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::
   children.push_back(minimal_setup_section());
 
   extend(children, export_board_outline(board.geometry, board.stackup));
-  extend(children, export_footprints(board.geometry, board.stackup, board.connectivity));
+  extend(children,
+         export_footprints(board.geometry, board.stackup, board.connectivity, board.extensions));
   extend(children, export_tracks(board.geometry, board.stackup, board.connectivity));
   extend(children, export_vias(board.geometry, board.stackup, board.connectivity));
   extend(children, export_zones(board.geometry, board.stackup, board.connectivity));

@@ -42,6 +42,13 @@ struct PadShapeParams {
 // should silently approximate).
 [[nodiscard]] geometry::Polygon build_pad_outline(const PadShapeParams& params);
 
+// The KiCad shape-keyword symbol for `shape` (e.g. "rect", "circle") --
+// the exporter's inverse of import_footprint.cpp's parse_pad_shape_kind,
+// used when re-emitting a pad from a decoded PCBIR_KICAD/pad_shape
+// extension (pad_shape_extension.hpp) instead of falling back to a
+// `custom` pad.
+[[nodiscard]] const char* kicad_pad_shape_keyword(KicadPadShape shape);
+
 } // namespace pcbir::kicad
 
 #endif // PCBIR_KICAD_PAD_SHAPE_HPP

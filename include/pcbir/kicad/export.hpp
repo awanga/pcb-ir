@@ -123,9 +123,11 @@ public:
 // board.kicad_pcb), then board outline, footprints, tracks, free vias, and
 // zones in that order, matching real pcbnew's own section ordering -- and
 // writes the result to `path` via write_sexpr (pcbir/kicad/sexpr.hpp).
-// `board.extensions`/`board.passthrough_blobs` have no KiCad export path
-// yet and are ignored. The importer's inverse: import_kicad_pcb
-// (pcbir/kicad/import.hpp).
+// `board.extensions` is passed through to export_footprints so a
+// PCBIR_KICAD/pad_shape extension upgrades that pad's shape from
+// Approximated to Preserved (pcbir/kicad/export_footprint.hpp);
+// `board.passthrough_blobs` has no KiCad export path yet and is ignored.
+// The importer's inverse: import_kicad_pcb (pcbir/kicad/import.hpp).
 //
 // Throws ExportError for anything any individual export_* piece above
 // would throw for this snapshot's content, or if `path` can't be opened

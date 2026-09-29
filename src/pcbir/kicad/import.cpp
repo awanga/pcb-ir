@@ -121,6 +121,7 @@ pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path) {
   board.geometry = std::move(final_geometry);
   board.connectivity = std::move(after_vias.connectivity);
   board.stackup = stackup;
+  board.extensions = after_footprints.extensions;
   return board;
 }
 

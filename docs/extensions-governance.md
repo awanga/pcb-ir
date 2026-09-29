@@ -24,4 +24,8 @@ the Khronos pattern (vendor / EXT / registered tiers) so the ecosystem stays int
 ## Registry
 
 A third party must be able to register / namespace an extension from this document alone.
-(Registration process and the registered-extension table to be added.)
+(Registration process to be added.)
+
+| Namespace/name | Version | Domain | Purpose |
+|---|---|---|---|
+| `PCBIR_KICAD/pad_shape` | 1 | Geometry (keyed by a `Pad` entity) | Carries a KiCad-imported Pad's original parametric shape (rect/circle/oval/roundrect/trapezoid, plus its absolute rotation) losslessly alongside the always-present geometric outline, so a reader that understands it reconstructs the exact original KiCad pad primitive (Preserved) instead of falling back to a generic `custom` shape (Approximated) -- `docs/rfcs/0003-kicad-importer-exporter.md`'s "Pad shape fidelity". Fixed 56-byte little-endian payload; see `src/pcbir/kicad/pad_shape_extension.hpp` for the exact layout. |

@@ -227,6 +227,22 @@ build_trapezoid(int64_t width_nm, int64_t height_nm, int64_t delta_x_nm, int64_t
 
 } // namespace
 
+const char* kicad_pad_shape_keyword(KicadPadShape shape) {
+  switch (shape) {
+  case KicadPadShape::Rect:
+    return "rect";
+  case KicadPadShape::Circle:
+    return "circle";
+  case KicadPadShape::Oval:
+    return "oval";
+  case KicadPadShape::RoundRect:
+    return "roundrect";
+  case KicadPadShape::Trapezoid:
+    return "trapezoid";
+  }
+  throw ImportError("unrecognized KiCad pad shape");
+}
+
 Polygon build_pad_outline(const PadShapeParams& params) {
   switch (params.shape) {
   case KicadPadShape::Rect:

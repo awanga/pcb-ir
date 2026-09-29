@@ -3,6 +3,8 @@
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/entity_domain.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/pad.hpp"
@@ -17,6 +19,8 @@
 #include "pcbir/kicad/import.hpp"
 #include "pcbir/kicad/import_footprint.hpp"
 #include "pcbir/kicad/import_nets.hpp"
+#include "pcbir/kicad/pad_shape.hpp"
+#include "pcbir/kicad/pad_shape_extension.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/layer.hpp"
 #include "pcbir/stackup/layer_stack.hpp"
@@ -24,17 +28,22 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
+using pcbir::EntityDomain;
+using pcbir::Extension;
 using pcbir::connectivity::ConnectivitySnapshot;
 using pcbir::connectivity::ConnectivityWorkspace;
 using pcbir::connectivity::Net;
 using pcbir::connectivity::Pin;
 using pcbir::core::EntityId;
+using pcbir::kicad::decode_pad_shape_extension;
+using pcbir::kicad::DecodedPadShape;
 using pcbir::kicad::export_footprints;
 using pcbir::kicad::export_layers_section;
 using pcbir::kicad::ExportError;
@@ -42,6 +51,10 @@ using pcbir::kicad::FootprintImportResult;
 using pcbir::kicad::import_footprints;
 using pcbir::kicad::import_nets;
 using pcbir::kicad::import_stackup;
+using pcbir::kicad::KicadPadShape;
+using pcbir::kicad::PAD_SHAPE_EXTENSION_NAME;
+using pcbir::kicad::PAD_SHAPE_EXTENSION_NAMESPACE;
+using pcbir::kicad::PAD_SHAPE_EXTENSION_VERSION;
 using pcbir::kicad::parse_sexpr;
 using pcbir::kicad::SExpr;
 using pcbir::kicad::write_sexpr;
@@ -166,6 +179,37 @@ namespace {
   });
   return found;
 }
+
+// REQUIREs `opt` is present and returns its value -- lets every call site
+// below dereference the result of decode_pad_shape_extension without
+// tripping bugprone-unchecked-optional-access (clang-tidy doesn't treat
+// Catch2's REQUIRE(opt.has_value()) macro as narrowing `opt`'s type, so
+// each dereference downstream still looks unchecked to it; centralizing
+// the one real check plus its NOLINT here keeps every other line clean).
+[[nodiscard]] DecodedPadShape require_decoded(const std::optional<DecodedPadShape>& opt) {
+  REQUIRE(opt.has_value());
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+  return *opt;
+}
+
+// A roundrect SMD pad, verifying the PCBIR_KICAD/pad_shape extension's
+// ratio-to-radius conversion (the trickiest of the 5 shape kinds).
+constexpr const char* ROUNDRECT_BOARD = R"(
+  (kicad_pcb
+    (layers (0 "F.Cu" signal) (2 "B.Cu" signal))
+    (footprint "" (layer "F.Cu") (at 10 10)
+      (pad "1" smd roundrect (at 0 0) (size 2 1) (roundrect_rratio 0.25) (layers "F.Cu")))
+  )
+)";
+
+// A custom-shape SMD pad -- must produce no PCBIR_KICAD/pad_shape
+// extension at all (Approximated, not Preserved, fallback path).
+constexpr const char* CUSTOM_PAD_BOARD = R"(
+  (kicad_pcb (layers (0 "F.Cu" signal)) (footprint "" (layer "F.Cu") (at 10 5)
+    (pad "1" smd custom (at 2 1) (size 0.5 0.5) (layers "F.Cu")
+      (primitives
+        (gr_poly (pts (xy -0.8 -0.6) (xy 0.8 -0.6) (xy 0.8 0.6) (xy -0.8 0.6)) (width 0))))))
+)";
 
 } // namespace
 
@@ -325,4 +369,70 @@ TEST_CASE("export_footprints throws when a Footprint references a pad id that is
   const GeometrySnapshot original = geometry_workspace.commit();
 
   REQUIRE_THROWS_AS(export_footprints(original, stackup, nets), ExportError);
+}
+
+TEST_CASE("import_footprints/export_footprints round-trip a roundrect pad's shape as Preserved "
+          "via the PCBIR_KICAD/pad_shape extension",
+          "[kicad][export]") {
+  const SExpr root = parse_sexpr(ROUNDRECT_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const FootprintImportResult imported = import_footprints(root, stackup, nets);
+
+  REQUIRE(imported.extensions.size() == 1);
+  const Extension& extension = imported.extensions.at(0);
+  REQUIRE(extension.domain == EntityDomain::Geometry);
+  REQUIRE(extension.ext_namespace == PAD_SHAPE_EXTENSION_NAMESPACE);
+  REQUIRE(extension.name == PAD_SHAPE_EXTENSION_NAME);
+  REQUIRE(extension.version == PAD_SHAPE_EXTENSION_VERSION);
+
+  const DecodedPadShape decoded = require_decoded(decode_pad_shape_extension(extension.payload));
+  REQUIRE(decoded.params.shape == KicadPadShape::RoundRect);
+  REQUIRE(decoded.params.width_nm == 2'000'000);
+  REQUIRE(decoded.params.height_nm == 1'000'000);
+  REQUIRE(decoded.params.roundrect_radius_nm == 250'000); // 0.25 * min(2mm, 1mm)
+
+  const std::vector<SExpr> nodes =
+      export_footprints(imported.geometry, stackup, imported.connectivity, imported.extensions);
+  REQUIRE(nodes.size() == 1);
+
+  const std::string exported_text = write_sexpr(nodes.at(0));
+  REQUIRE(exported_text.find("roundrect") != std::string::npos);
+  REQUIRE(exported_text.find("custom") == std::string::npos);
+
+  const SExpr layers_section = export_layers_section(stackup);
+  const SExpr reexported_root = parse_sexpr(write_sexpr(wrap_board(layers_section, nodes)));
+  const StackupSnapshot reimported_stackup = import_stackup(reexported_root);
+  const ConnectivitySnapshot reimported_nets = import_nets(reexported_root);
+  const FootprintImportResult reimported =
+      import_footprints(reexported_root, reimported_stackup, reimported_nets);
+
+  REQUIRE(reimported.extensions.size() == 1); // still Preserved on a second round-trip
+  const DecodedPadShape redecoded =
+      require_decoded(decode_pad_shape_extension(reimported.extensions.at(0).payload));
+  REQUIRE(redecoded.params.shape == decoded.params.shape);
+  REQUIRE(redecoded.params.width_nm == decoded.params.width_nm);
+  REQUIRE(redecoded.params.height_nm == decoded.params.height_nm);
+  REQUIRE(redecoded.params.roundrect_radius_nm == decoded.params.roundrect_radius_nm);
+
+  const Pad& reimported_pad = only_pad(reimported.geometry);
+  REQUIRE(reimported_pad.outline.outline.spans.size() == 8); // 4 edges + 4 rounded corners
+}
+
+TEST_CASE("import_footprints produces no pad_shape extension for a custom-shape pad, and "
+          "export_footprints still falls back to a custom shape",
+          "[kicad][export]") {
+  const SExpr root = parse_sexpr(CUSTOM_PAD_BOARD);
+  const StackupSnapshot stackup = import_stackup(root);
+  const ConnectivitySnapshot nets = import_nets(root);
+  const FootprintImportResult imported = import_footprints(root, stackup, nets);
+
+  REQUIRE(imported.extensions.empty());
+
+  const std::vector<SExpr> nodes =
+      export_footprints(imported.geometry, stackup, imported.connectivity, imported.extensions);
+  REQUIRE(nodes.size() == 1);
+
+  const std::string exported_text = write_sexpr(nodes.at(0));
+  REQUIRE(exported_text.find("custom") != std::string::npos);
 }

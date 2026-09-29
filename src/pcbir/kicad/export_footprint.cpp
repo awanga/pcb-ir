@@ -3,7 +3,10 @@
 
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/entity_domain.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/geometry/arc.hpp"
+#include "pcbir/geometry/checked_arith.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/footprint.hpp"
 #include "pcbir/geometry/pad.hpp"
@@ -23,12 +26,15 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "coordinate_util.hpp"
+#include "pad_shape.hpp"
+#include "pad_shape_extension.hpp"
 #include "sexpr_build.hpp"
 #include "uuid.hpp"
 
@@ -165,6 +171,75 @@ struct PadShapeExport {
   return tagged("pad", std::move(children));
 }
 
+// The ratio (scaled by 1e6) KiCad's `roundrect_rratio` field expects,
+// derived from the absolute corner radius the PCBIR_KICAD/pad_shape
+// extension stores -- the exporter's inverse of import_footprint.cpp's
+// `parse_pad_shape_params`'s own ratio-to-radius conversion. This doesn't
+// necessarily recover the exact original ratio *string* bit-for-bit
+// (import's own radius computation already truncates towards the nearest
+// nanometre), but it reproduces the same radius_nm once reloaded, which is
+// what determines the pad's actual shape -- the same nanometre-scale
+// rounding tolerance already accepted throughout this module.
+[[nodiscard]] int64_t roundrect_ratio_e6(const PadShapeParams& params) {
+  const int64_t min_dim_nm = std::min(params.width_nm, params.height_nm);
+  if (min_dim_nm <= 0) {
+    return 0;
+  }
+  int64_t scaled = 0;
+  if (!geometry::checked_mul(params.roundrect_radius_nm, 1'000'000, scaled)) {
+    throw ExportError("roundrect ratio computation overflows");
+  }
+  return scaled / min_dim_nm;
+}
+
+// A Pad whose original KiCad-authored parametric shape survived via a
+// PCBIR_KICAD/pad_shape extension (pad_shape_extension.hpp), exported as
+// that real primitive rather than the always-`custom` fallback
+// export_smd_pad uses -- **Preserved**, not Approximated
+// (pcbir/kicad/export_footprint.hpp). `shape.rotation_e6` is the pad's own
+// absolute rotation exactly as imported (PCB-IR's counterclockwise
+// convention) -- geometry::Pad itself has no rotation field to recover
+// this from, which is exactly why the extension carries it.
+[[nodiscard]] SExpr export_parametric_pad(const geometry::Pad& pad,
+                                          const stackup::Layer& copper_layer,
+                                          std::optional<SExpr> net,
+                                          core::EntityId pad_id,
+                                          const Point& footprint_position,
+                                          int64_t footprint_rotation_e6,
+                                          const DecodedPadShape& shape) {
+  const Point local_at =
+      footprint_local_point(pad.position, footprint_position, footprint_rotation_e6);
+  const std::string uuid_name = "pcbir:geometry:pad:" + std::to_string(pad_id.value());
+
+  std::vector<SExpr> children{
+      str(pad.pad_number), sym("smd"), sym(kicad_pad_shape_keyword(shape.params.shape))};
+
+  std::vector<SExpr> at_children{sym(format_nm_to_mm(local_at.x)),
+                                 sym(format_nm_to_mm(local_at.y))};
+  if (const std::optional<int64_t> kicad_angle_e6 = format_kicad_rotation_e6(shape.rotation_e6)) {
+    at_children.push_back(sym(format_e6_to_degrees(*kicad_angle_e6)));
+  }
+  children.push_back(tagged("at", std::move(at_children)));
+
+  children.push_back(tagged(
+      "size",
+      {sym(format_nm_to_mm(shape.params.width_nm)), sym(format_nm_to_mm(shape.params.height_nm))}));
+  children.push_back(tagged("layers", pad_layer_names(copper_layer.name)));
+  push_if_present(children, std::move(net));
+
+  if (shape.params.shape == KicadPadShape::RoundRect) {
+    children.push_back(
+        tagged("roundrect_rratio", {sym(format_e6_to_ratio(roundrect_ratio_e6(shape.params)))}));
+  } else if (shape.params.shape == KicadPadShape::Trapezoid) {
+    children.push_back(tagged("rect_delta",
+                              {sym(format_nm_to_mm(shape.params.trapezoid_delta_x_nm)),
+                               sym(format_nm_to_mm(shape.params.trapezoid_delta_y_nm))}));
+  }
+
+  children.push_back(tagged("uuid", {str(uuid_v5(UUID_NAMESPACE, uuid_name))}));
+  return tagged("pad", std::move(children));
+}
+
 [[nodiscard]] SExpr export_thru_hole_pad(const geometry::Via& via,
                                          std::optional<SExpr> net,
                                          core::EntityId via_id,
@@ -196,6 +271,7 @@ export_footprint_entry(const geometry::GeometrySnapshot& geometry,
                        const stackup::StackupSnapshot& stackup,
                        const connectivity::ConnectivitySnapshot& nets,
                        const std::map<core::EntityId::ValueType, core::EntityId>& pin_nets,
+                       const std::map<core::EntityId::ValueType, DecodedPadShape>& pad_shapes,
                        core::EntityId footprint_id,
                        const geometry::Footprint& footprint) {
   const std::string prefix = side_prefix(footprint.side);
@@ -229,12 +305,21 @@ export_footprint_entry(const geometry::GeometrySnapshot& geometry,
 
     if (const geometry::Pad* pad = pad_table.try_get(pad_table.find(member_id)); pad != nullptr) {
       const stackup::Layer& copper_layer = require_layer(stackup, pad->layer);
-      children.push_back(export_smd_pad(*pad,
-                                        copper_layer,
-                                        net_field(nets, net_id),
-                                        member_id,
-                                        footprint.position,
-                                        footprint.rotation_e6));
+      const auto shape_it = pad_shapes.find(member_id.value());
+      children.push_back(shape_it != pad_shapes.end()
+                             ? export_parametric_pad(*pad,
+                                                     copper_layer,
+                                                     net_field(nets, net_id),
+                                                     member_id,
+                                                     footprint.position,
+                                                     footprint.rotation_e6,
+                                                     shape_it->second)
+                             : export_smd_pad(*pad,
+                                              copper_layer,
+                                              net_field(nets, net_id),
+                                              member_id,
+                                              footprint.position,
+                                              footprint.rotation_e6));
       continue;
     }
     const geometry::Via* via = via_table.try_get(via_table.find(member_id));
@@ -248,17 +333,45 @@ export_footprint_entry(const geometry::GeometrySnapshot& geometry,
   return tagged("footprint", std::move(children));
 }
 
+// Indexes `extensions` by Pad id for the (Geometry, "PCBIR_KICAD",
+// "pad_shape", version 1) entries export_footprint_entry looks up -- any
+// other domain/namespace/name/version, or a payload that fails to decode,
+// is skipped (the extension mechanism's own "safely ignore what you don't
+// recognize" contract), not treated as an error.
+[[nodiscard]] std::map<core::EntityId::ValueType, DecodedPadShape>
+build_pad_shape_index(std::span<const Extension> extensions) {
+  std::map<core::EntityId::ValueType, DecodedPadShape> index;
+  for (const Extension& extension : extensions) {
+    if (extension.domain != EntityDomain::Geometry ||
+        extension.ext_namespace != PAD_SHAPE_EXTENSION_NAMESPACE ||
+        extension.name != PAD_SHAPE_EXTENSION_NAME ||
+        extension.version != PAD_SHAPE_EXTENSION_VERSION) {
+      continue;
+    }
+    if (const std::optional<DecodedPadShape> decoded =
+            decode_pad_shape_extension(extension.payload);
+        decoded.has_value()) {
+      index[extension.entity_id.value()] = *decoded;
+    }
+  }
+  return index;
+}
+
 } // namespace
 
 std::vector<SExpr> export_footprints(const geometry::GeometrySnapshot& geometry,
                                      const stackup::StackupSnapshot& stackup,
-                                     const connectivity::ConnectivitySnapshot& nets) {
+                                     const connectivity::ConnectivitySnapshot& nets,
+                                     std::span<const Extension> extensions) {
   const std::map<core::EntityId::ValueType, core::EntityId> pin_nets = build_pin_net_index(nets);
+  const std::map<core::EntityId::ValueType, DecodedPadShape> pad_shapes =
+      build_pad_shape_index(extensions);
 
   std::vector<SExpr> nodes;
   geometry.table<geometry::Footprint>().for_each(
       [&](core::EntityId id, const geometry::Footprint& footprint) {
-        nodes.push_back(export_footprint_entry(geometry, stackup, nets, pin_nets, id, footprint));
+        nodes.push_back(
+            export_footprint_entry(geometry, stackup, nets, pin_nets, pad_shapes, id, footprint));
       });
   return nodes;
 }

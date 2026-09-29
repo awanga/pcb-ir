@@ -3,21 +3,28 @@
 #define PCBIR_KICAD_IMPORT_FOOTPRINT_HPP
 
 #include "pcbir/connectivity/serialize.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/geometry/serialize.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
+#include <vector>
+
 namespace pcbir::kicad {
 
-// The two-layer output of import_footprints: geometry (Footprint/Pad/Via)
-// and connectivity (the input `nets` snapshot's Net table, carried
-// forward unchanged, plus one new Pin per Pad/Via created here).
+// The output of import_footprints: geometry (Footprint/Pad/Via) and
+// connectivity (the input `nets` snapshot's Net table, carried forward
+// unchanged, plus one new Pin per Pad/Via created here), plus every
+// PCBIR_KICAD/pad_shape Extension produced for a non-custom-shape Pad
+// (pcbir/kicad/export_footprint.hpp; src/pcbir/kicad/
+// pad_shape_extension.hpp) -- empty when a footprint has no such pads.
 // Returned together, rather than through an in/out workspace parameter,
 // so this stays a plain, independently-testable function in the same
 // style as import_stackup/import_board_outline.
 struct FootprintImportResult {
   geometry::GeometrySnapshot geometry;
   connectivity::ConnectivitySnapshot connectivity;
+  std::vector<Extension> extensions;
 };
 
 // Imports every `(footprint ...)` in a parsed `.kicad_pcb` root

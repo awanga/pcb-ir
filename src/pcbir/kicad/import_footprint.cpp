@@ -4,6 +4,8 @@
 #include "pcbir/connectivity/pin.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/entity_domain.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/geometry/checked_arith.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/footprint.hpp"
@@ -23,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -30,6 +33,7 @@
 
 #include "coordinate_util.hpp"
 #include "pad_shape.hpp"
+#include "pad_shape_extension.hpp"
 #include "sexpr_util.hpp"
 
 namespace pcbir::kicad {
@@ -187,15 +191,17 @@ struct AbsolutePlacement {
 // Imports one `(pad ...)` (smd/connect -> Pad, thru_hole/np_thru_hole ->
 // Via) and inserts the result plus its Pin into the given workspaces,
 // returning the new entity's id so the caller can add it to its owning
-// Footprint::pads.
-[[nodiscard]] core::EntityId
-import_pad(const SExpr& pad,
-           const stackup::StackupSnapshot& stackup,
-           const std::map<std::string, core::EntityId>& net_index,
-           const Point& footprint_position,
-           int64_t footprint_rotation_e6,
-           geometry::GeometryWorkspace& geometry_workspace,
-           connectivity::ConnectivityWorkspace& connectivity_workspace) {
+// Footprint::pads. A non-custom-shape Pad also appends a PCBIR_KICAD/
+// pad_shape Extension to `extensions` (pad_shape_extension.hpp), keyed by
+// the new Pad's own id.
+[[nodiscard]] core::EntityId import_pad(const SExpr& pad,
+                                        const stackup::StackupSnapshot& stackup,
+                                        const std::map<std::string, core::EntityId>& net_index,
+                                        const Point& footprint_position,
+                                        int64_t footprint_rotation_e6,
+                                        geometry::GeometryWorkspace& geometry_workspace,
+                                        connectivity::ConnectivityWorkspace& connectivity_workspace,
+                                        std::vector<Extension>& extensions) {
   if (pad.children.size() < 4 || !pad.children.at(1).is_string() ||
       !pad.children.at(2).is_symbol() || !pad.children.at(3).is_symbol()) {
     throw ImportError("malformed (pad ...): expected (pad \"NUMBER\" TYPE SHAPE ...)");
@@ -209,10 +215,14 @@ import_pad(const SExpr& pad,
   core::EntityId entity_id;
   if (pad_type == "smd" || pad_type == "connect") {
     const std::string& shape_text = pad.children.at(3).text;
-    const Polygon local_outline =
-        (shape_text == "custom")
-            ? parse_custom_pad_outline(pad)
-            : build_pad_outline(parse_pad_shape_params(pad, parse_pad_shape_kind(shape_text)));
+    std::optional<PadShapeParams> shape_params;
+    Polygon local_outline;
+    if (shape_text == "custom") {
+      local_outline = parse_custom_pad_outline(pad);
+    } else {
+      shape_params = parse_pad_shape_params(pad, parse_pad_shape_kind(shape_text));
+      local_outline = build_pad_outline(*shape_params);
+    }
     const Polygon absolute_outline =
         translate(geometry::rotate(local_outline, Point{.x = 0, .y = 0}, placement.rotation_e6),
                   placement.center);
@@ -222,6 +232,15 @@ import_pad(const SExpr& pad,
                                                 .layer = resolve_pad_copper_layer(stackup, pad),
                                                 .pad_number = pad_number});
     entity_id = geometry_workspace.table<geometry::Pad>().id_of(handle);
+    if (shape_params.has_value()) {
+      extensions.push_back(
+          Extension{.domain = EntityDomain::Geometry,
+                    .entity_id = entity_id,
+                    .ext_namespace = PAD_SHAPE_EXTENSION_NAMESPACE,
+                    .name = PAD_SHAPE_EXTENSION_NAME,
+                    .version = PAD_SHAPE_EXTENSION_VERSION,
+                    .payload = encode_pad_shape_extension(*shape_params, placement.rotation_e6)});
+    }
   } else if (pad_type == "thru_hole" || pad_type == "np_thru_hole") {
     const SExpr* size_node = find_child(pad, "size");
     const SExpr* drill_node = find_child(pad, "drill");
@@ -267,6 +286,7 @@ FootprintImportResult import_footprints(const SExpr& kicad_pcb,
 
   geometry::GeometryWorkspace geometry_workspace(geometry_base);
   connectivity::ConnectivityWorkspace connectivity_workspace(nets);
+  std::vector<Extension> extensions;
 
   for (const SExpr* footprint : find_all_children(kicad_pcb, "footprint")) {
     const SExpr* layer_node = find_child(*footprint, "layer");
@@ -288,7 +308,8 @@ FootprintImportResult import_footprints(const SExpr& kicad_pcb,
                                    footprint_position,
                                    footprint_rotation_e6,
                                    geometry_workspace,
-                                   connectivity_workspace));
+                                   connectivity_workspace,
+                                   extensions));
     }
 
     geometry_workspace.insert(
@@ -301,7 +322,8 @@ FootprintImportResult import_footprints(const SExpr& kicad_pcb,
   }
 
   return FootprintImportResult{.geometry = geometry_workspace.commit(),
-                               .connectivity = connectivity_workspace.commit()};
+                               .connectivity = connectivity_workspace.commit(),
+                               .extensions = std::move(extensions)};
 }
 
 } // namespace pcbir::kicad
