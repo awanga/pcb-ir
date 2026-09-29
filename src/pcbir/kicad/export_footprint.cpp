@@ -22,7 +22,6 @@
 #include "pcbir/stackup/serialize.hpp"
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>

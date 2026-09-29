@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "coordinate_util.hpp"

@@ -38,7 +38,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <set>
 #include <string>
