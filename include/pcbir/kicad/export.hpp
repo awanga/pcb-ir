@@ -5,6 +5,7 @@
 #include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/geometry/serialize.hpp"
+#include "pcbir/kicad/fidelity.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
@@ -129,10 +130,21 @@ public:
 // `board.passthrough_blobs` has no KiCad export path yet and is ignored.
 // The importer's inverse: import_kicad_pcb (pcbir/kicad/import.hpp).
 //
+// `report`, if non-null, is appended with one FidelityRecord per entity
+// this run exports (fidelity.hpp): pad shape Preserved/Approximated
+// depending on whether a usable PCBIR_KICAD/pad_shape extension was
+// found, a non-90-degree footprint rotation Approximated, the same
+// finished-hole-diameter approximation the importer documents, and one
+// Unsupported record per non-empty geometry component table this
+// exporter doesn't touch at all (Keepout, DrillHit, MaskOpening,
+// SilkscreenGraphic) -- left untouched (nullptr) by default.
+//
 // Throws ExportError for anything any individual export_* piece above
 // would throw for this snapshot's content, or if `path` can't be opened
 // for writing.
-void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::path& path);
+void export_kicad_pcb(const pcbir::BoardSnapshot& board,
+                      const std::filesystem::path& path,
+                      FidelityReport* report = nullptr);
 
 } // namespace pcbir::kicad
 

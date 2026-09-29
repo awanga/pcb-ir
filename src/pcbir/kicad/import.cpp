@@ -4,7 +4,16 @@
 #include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/entity_domain.hpp"
+#include "pcbir/extension.hpp"
+#include "pcbir/geometry/board_outline.hpp"
+#include "pcbir/geometry/copper_pour.hpp"
+#include "pcbir/geometry/footprint.hpp"
+#include "pcbir/geometry/pad.hpp"
 #include "pcbir/geometry/serialize.hpp"
+#include "pcbir/geometry/track.hpp"
+#include "pcbir/geometry/via.hpp"
+#include "pcbir/kicad/fidelity.hpp"
 #include "pcbir/kicad/import_footprint.hpp"
 #include "pcbir/kicad/import_geometry.hpp"
 #include "pcbir/kicad/import_nets.hpp"
@@ -20,11 +29,13 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "pad_shape_extension.hpp"
 #include "sexpr_util.hpp"
 
 namespace pcbir::kicad {
@@ -100,7 +111,196 @@ void validate_kicad_pcb_root(const SExpr& root) {
 
 } // namespace
 
-pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path) {
+namespace {
+
+constexpr int64_t DEGREES_E6_PER_90 = 90'000'000;
+
+[[nodiscard]] bool is_axis_aligned(int64_t rotation_e6) {
+  return rotation_e6 % DEGREES_E6_PER_90 == 0;
+}
+
+void add_record(FidelityReport& report,
+                EntityDomain domain,
+                core::EntityId entity_id,
+                std::string entity_kind,
+                std::string attribute,
+                FidelityTier tier,
+                std::string reason) {
+  report.records.push_back(FidelityRecord{.domain = domain,
+                                          .entity_id = entity_id,
+                                          .entity_kind = std::move(entity_kind),
+                                          .attribute = std::move(attribute),
+                                          .tier = tier,
+                                          .reason = std::move(reason)});
+}
+
+void populate_stackup_fidelity(FidelityReport& report, const stackup::StackupSnapshot& stackup) {
+  stackup.table<stackup::Layer>().for_each([&](core::EntityId id, const stackup::Layer& layer) {
+    if (layer.kind == stackup::LayerKind::Copper) {
+      add_record(report,
+                 EntityDomain::Stackup,
+                 id,
+                 "layer",
+                 "thickness",
+                 FidelityTier::Approximated,
+                 "KiCad's (layers ...) carries no per-layer thickness; a fixed default was "
+                 "applied");
+    } else {
+      add_record(report,
+                 EntityDomain::Stackup,
+                 id,
+                 "layer",
+                 "kind",
+                 FidelityTier::Preserved,
+                 "layer kind/name round-trip exactly");
+    }
+  });
+}
+
+// A Pad id has a matching PCBIR_KICAD/pad_shape entry in `extensions`.
+[[nodiscard]] std::set<core::EntityId::ValueType>
+pad_ids_with_shape_extension(const std::vector<Extension>& extensions) {
+  std::set<core::EntityId::ValueType> ids;
+  for (const Extension& extension : extensions) {
+    if (extension.domain == EntityDomain::Geometry &&
+        extension.ext_namespace == PAD_SHAPE_EXTENSION_NAMESPACE &&
+        extension.name == PAD_SHAPE_EXTENSION_NAME) {
+      ids.insert(extension.entity_id.value());
+    }
+  }
+  return ids;
+}
+
+void populate_geometry_fidelity(FidelityReport& report,
+                                const geometry::GeometrySnapshot& geometry,
+                                const std::vector<Extension>& extensions) {
+  geometry.table<geometry::BoardOutline>().for_each(
+      [&](core::EntityId id, const geometry::BoardOutline&) {
+        add_record(report,
+                   EntityDomain::Geometry,
+                   id,
+                   "board_outline",
+                   "outline",
+                   FidelityTier::Preserved,
+                   "straight/arc outline geometry round-trips exactly");
+      });
+
+  geometry.table<geometry::Footprint>().for_each(
+      [&](core::EntityId id, const geometry::Footprint& footprint) {
+        const bool axis_aligned = is_axis_aligned(footprint.rotation_e6);
+        add_record(report,
+                   EntityDomain::Geometry,
+                   id,
+                   "footprint",
+                   "rotation",
+                   axis_aligned ? FidelityTier::Preserved : FidelityTier::Approximated,
+                   axis_aligned ? "90-degree-multiple rotation is exact"
+                                : "non-90-degree rotation uses geometry::rotate's documented "
+                                  "floating-point tolerance");
+      });
+
+  const std::set<core::EntityId::ValueType> pad_shape_ids =
+      pad_ids_with_shape_extension(extensions);
+  geometry.table<geometry::Pad>().for_each([&](core::EntityId id, const geometry::Pad&) {
+    const bool preserved = pad_shape_ids.contains(id.value());
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "pad",
+               "shape",
+               preserved ? FidelityTier::Preserved : FidelityTier::Approximated,
+               preserved ? "PCBIR_KICAD/pad_shape extension carries the original primitive"
+                         : "no PCBIR_KICAD/pad_shape extension; shape identity lost, copper "
+                           "geometry preserved");
+  });
+
+  geometry.table<geometry::Via>().for_each([&](core::EntityId id, const geometry::Via&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "via",
+               "finished_hole_diameter",
+               FidelityTier::Approximated,
+               "KiCad's per-pad (drill ...) has no separate finished-hole-diameter field; "
+               "approximated as equal to the drill diameter");
+  });
+
+  geometry.table<geometry::Track>().for_each([&](core::EntityId id, const geometry::Track&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "track",
+               "path",
+               FidelityTier::Preserved,
+               "segment/arc path geometry round-trips exactly");
+  });
+
+  geometry.table<geometry::CopperPour>().for_each([&](core::EntityId id,
+                                                      const geometry::CopperPour&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "zone",
+               "outline",
+               FidelityTier::Preserved,
+               "authored outline round-trips exactly (computed fill polygons are out of scope)");
+  });
+}
+
+// KiCad top-level sections this importer actually consumes -- anything
+// else found as a direct child of the root `(kicad_pcb ...)` list is a
+// section this pass doesn't recognize at all, reported Unsupported rather
+// than silently ignored (docs/rfcs/0003-kicad-importer-exporter.md's
+// "Explicitly out of scope").
+[[nodiscard]] bool is_recognized_top_level_tag(const std::string& tag) {
+  static const std::set<std::string> recognized{"version",
+                                                "generator",
+                                                "generator_version",
+                                                "general",
+                                                "paper",
+                                                "layers",
+                                                "setup",
+                                                "footprint",
+                                                "gr_line",
+                                                "gr_arc",
+                                                "segment",
+                                                "arc",
+                                                "via",
+                                                "zone",
+                                                "embedded_fonts"};
+  return recognized.contains(tag);
+}
+
+void populate_unsupported_sections_fidelity(FidelityReport& report, const SExpr& kicad_pcb) {
+  std::set<std::string> unrecognized_tags;
+  for (const SExpr& child : kicad_pcb.children) {
+    if (child.is_list() && !child.children.empty() && child.children.front().is_symbol() &&
+        !is_recognized_top_level_tag(child.children.front().text)) {
+      unrecognized_tags.insert(child.children.front().text);
+    }
+  }
+  for (const std::string& tag : unrecognized_tags) {
+    add_record(report,
+               EntityDomain::Geometry,
+               core::EntityId{},
+               tag,
+               "presence",
+               FidelityTier::Unsupported,
+               "'(" + tag + " ...)' is not recognized by this importer");
+  }
+}
+
+void populate_import_fidelity_report(const SExpr& kicad_pcb,
+                                     const pcbir::BoardSnapshot& board,
+                                     FidelityReport& report) {
+  populate_stackup_fidelity(report, board.stackup);
+  populate_geometry_fidelity(report, board.geometry, board.extensions);
+  populate_unsupported_sections_fidelity(report, kicad_pcb);
+}
+
+} // namespace
+
+pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path, FidelityReport* report) {
   const SExpr root = parse_sexpr(read_file(path));
   validate_kicad_pcb_root(root);
 
@@ -122,6 +322,10 @@ pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path) {
   board.connectivity = std::move(after_vias.connectivity);
   board.stackup = stackup;
   board.extensions = after_footprints.extensions;
+
+  if (report != nullptr) {
+    populate_import_fidelity_report(root, board, *report);
+  }
   return board;
 }
 

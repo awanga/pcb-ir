@@ -4,19 +4,27 @@
 #include "pcbir/board_snapshot.hpp"
 #include "pcbir/connectivity/serialize.hpp"
 #include "pcbir/core/entity_id.hpp"
+#include "pcbir/entity_domain.hpp"
+#include "pcbir/extension.hpp"
 #include "pcbir/format_version.hpp"
 #include "pcbir/geometry/arc.hpp"
 #include "pcbir/geometry/board_outline.hpp"
 #include "pcbir/geometry/contour.hpp"
 #include "pcbir/geometry/copper_pour.hpp"
+#include "pcbir/geometry/drill_hit.hpp"
 #include "pcbir/geometry/footprint.hpp"
+#include "pcbir/geometry/keepout.hpp"
+#include "pcbir/geometry/mask_opening.hpp"
+#include "pcbir/geometry/pad.hpp"
 #include "pcbir/geometry/path.hpp"
 #include "pcbir/geometry/polygon.hpp"
 #include "pcbir/geometry/segment.hpp"
 #include "pcbir/geometry/serialize.hpp"
+#include "pcbir/geometry/silkscreen_graphic.hpp"
 #include "pcbir/geometry/track.hpp"
 #include "pcbir/geometry/via.hpp"
 #include "pcbir/kicad/export_footprint.hpp"
+#include "pcbir/kicad/fidelity.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/kicad/units.hpp"
 #include "pcbir/stackup/layer.hpp"
@@ -30,6 +38,7 @@
 #include <ios>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -37,6 +46,7 @@
 #include <vector>
 
 #include "coordinate_util.hpp"
+#include "pad_shape_extension.hpp"
 #include "sexpr_build.hpp"
 #include "uuid.hpp"
 
@@ -383,9 +393,143 @@ void extend(std::vector<SExpr>& dest, std::vector<SExpr> src) {
   }
 }
 
+constexpr int64_t DEGREES_E6_PER_90 = 90'000'000;
+
+[[nodiscard]] bool is_axis_aligned(int64_t rotation_e6) {
+  return rotation_e6 % DEGREES_E6_PER_90 == 0;
+}
+
+void add_record(FidelityReport& report,
+                EntityDomain domain,
+                core::EntityId entity_id,
+                std::string entity_kind,
+                std::string attribute,
+                FidelityTier tier,
+                std::string reason) {
+  report.records.push_back(FidelityRecord{.domain = domain,
+                                          .entity_id = entity_id,
+                                          .entity_kind = std::move(entity_kind),
+                                          .attribute = std::move(attribute),
+                                          .tier = tier,
+                                          .reason = std::move(reason)});
+}
+
+// A Pad id has a matching, decodable PCBIR_KICAD/pad_shape entry in
+// `extensions` -- mirrors import.cpp's own pad_ids_with_shape_extension.
+[[nodiscard]] std::set<core::EntityId::ValueType>
+pad_ids_with_shape_extension(const std::vector<Extension>& extensions) {
+  std::set<core::EntityId::ValueType> ids;
+  for (const Extension& extension : extensions) {
+    if (extension.domain == EntityDomain::Geometry &&
+        extension.ext_namespace == PAD_SHAPE_EXTENSION_NAMESPACE &&
+        extension.name == PAD_SHAPE_EXTENSION_NAME &&
+        decode_pad_shape_extension(extension.payload).has_value()) {
+      ids.insert(extension.entity_id.value());
+    }
+  }
+  return ids;
+}
+
+void populate_footprint_fidelity(FidelityReport& report,
+                                 const geometry::GeometrySnapshot& geometry,
+                                 const std::vector<Extension>& extensions) {
+  geometry.table<geometry::Footprint>().for_each(
+      [&](core::EntityId id, const geometry::Footprint& footprint) {
+        const bool axis_aligned = is_axis_aligned(footprint.rotation_e6);
+        add_record(report,
+                   EntityDomain::Geometry,
+                   id,
+                   "footprint",
+                   "rotation",
+                   axis_aligned ? FidelityTier::Preserved : FidelityTier::Approximated,
+                   axis_aligned ? "90-degree-multiple rotation is exact"
+                                : "non-90-degree rotation uses geometry::rotate's documented "
+                                  "floating-point tolerance");
+      });
+
+  const std::set<core::EntityId::ValueType> pad_shape_ids =
+      pad_ids_with_shape_extension(extensions);
+  geometry.table<geometry::Pad>().for_each([&](core::EntityId id, const geometry::Pad&) {
+    const bool preserved = pad_shape_ids.contains(id.value());
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "pad",
+               "shape",
+               preserved ? FidelityTier::Preserved : FidelityTier::Approximated,
+               preserved ? "PCBIR_KICAD/pad_shape extension recovers the original primitive"
+                         : "no usable PCBIR_KICAD/pad_shape extension; exported as a generic "
+                           "custom-shape pad");
+  });
+}
+
+void populate_via_track_zone_fidelity(FidelityReport& report,
+                                      const geometry::GeometrySnapshot& geometry) {
+  geometry.table<geometry::Via>().for_each([&](core::EntityId id, const geometry::Via&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "via",
+               "finished_hole_diameter",
+               FidelityTier::Approximated,
+               "KiCad's per-pad (drill ...) has no separate finished-hole-diameter field; "
+               "exported using the drill diameter");
+  });
+  geometry.table<geometry::Track>().for_each([&](core::EntityId id, const geometry::Track&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "track",
+               "path",
+               FidelityTier::Preserved,
+               "segment/arc path geometry round-trips exactly");
+  });
+  geometry.table<geometry::CopperPour>().for_each([&](core::EntityId id,
+                                                      const geometry::CopperPour&) {
+    add_record(report,
+               EntityDomain::Geometry,
+               id,
+               "zone",
+               "outline",
+               FidelityTier::Preserved,
+               "authored outline round-trips exactly (computed fill polygons are out of scope)");
+  });
+}
+
+// Component tables no export_* piece touches at all -- if a caller's
+// BoardSnapshot has entries here, they'd otherwise be silently absent from
+// the exported file (docs/rfcs/0003-kicad-importer-exporter.md's
+// "Explicitly out of scope").
+void populate_unexported_component_fidelity(FidelityReport& report,
+                                            const geometry::GeometrySnapshot& geometry) {
+  const auto record_if_present = [&](std::size_t count, const char* entity_kind) {
+    if (count > 0) {
+      add_record(report,
+                 EntityDomain::Geometry,
+                 core::EntityId{},
+                 entity_kind,
+                 "presence",
+                 FidelityTier::Unsupported,
+                 "not yet exported to KiCad by this exporter");
+    }
+  };
+  record_if_present(geometry.table<geometry::Keepout>().size(), "keepout");
+  record_if_present(geometry.table<geometry::DrillHit>().size(), "drill_hit");
+  record_if_present(geometry.table<geometry::MaskOpening>().size(), "mask_opening");
+  record_if_present(geometry.table<geometry::SilkscreenGraphic>().size(), "silkscreen_graphic");
+}
+
+void populate_export_fidelity_report(const pcbir::BoardSnapshot& board, FidelityReport& report) {
+  populate_footprint_fidelity(report, board.geometry, board.extensions);
+  populate_via_track_zone_fidelity(report, board.geometry);
+  populate_unexported_component_fidelity(report, board.geometry);
+}
+
 } // namespace
 
-void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::path& path) {
+void export_kicad_pcb(const pcbir::BoardSnapshot& board,
+                      const std::filesystem::path& path,
+                      FidelityReport* report) {
   std::vector<SExpr> children;
   children.push_back(tagged("version", {sym(std::to_string(EXPORTED_KICAD_VERSION))}));
   children.push_back(tagged("generator", {str("pcbir")}));
@@ -405,6 +549,10 @@ void export_kicad_pcb(const pcbir::BoardSnapshot& board, const std::filesystem::
   extend(children, export_zones(board.geometry, board.stackup, board.connectivity));
 
   children.push_back(tagged("embedded_fonts", {sym("no")}));
+
+  if (report != nullptr) {
+    populate_export_fidelity_report(board, *report);
+  }
 
   std::ofstream file(path, std::ios::binary);
   if (!file) {

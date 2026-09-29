@@ -3,6 +3,7 @@
 #define PCBIR_KICAD_IMPORT_HPP
 
 #include "pcbir/board_snapshot.hpp"
+#include "pcbir/kicad/fidelity.hpp"
 #include "pcbir/kicad/sexpr.hpp"
 #include "pcbir/stackup/serialize.hpp"
 
@@ -60,13 +61,22 @@ public:
 // (pcbir/kicad/import_footprint.hpp); `passthrough_blobs` is always empty
 // (this importer has no opaque-passthrough concept yet).
 //
+// `report`, if non-null, is appended with one FidelityRecord per entity
+// this run touches (fidelity.hpp), classifying each already-documented
+// approximation (default copper thickness, drill-as-finished-hole-
+// diameter, a non-90-degree rotation, a pad with no PCBIR_KICAD/pad_shape
+// extension) and one Unsupported record per distinct top-level KiCad
+// section this importer doesn't recognize -- left untouched (nullptr) by
+// default so a caller that doesn't need a report pays nothing extra.
+//
 // Throws ImportError if `path` can't be opened/read, if its content isn't
 // a `(kicad_pcb ...)` root expression, or if its `(version ...)` is below
 // this importer's pinned minimum (docs/rfcs/0003-kicad-importer-exporter.md
 // -- "Target version pin"; older KiCad versions are out of scope, rejected
 // with a diagnostic rather than best-effort parsed) -- or anything any
 // individual pass above would throw for this file's content.
-[[nodiscard]] pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path);
+[[nodiscard]] pcbir::BoardSnapshot import_kicad_pcb(const std::filesystem::path& path,
+                                                    FidelityReport* report = nullptr);
 
 } // namespace pcbir::kicad
 
