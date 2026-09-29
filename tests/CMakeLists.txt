@@ -41,11 +41,17 @@ add_executable(pcbir_tests
   kicad/pad_shape_test.cpp
   kicad/pad_shape_extension_test.cpp
   kicad/fidelity_test.cpp
+  kicad/roundtrip_test.cpp
+  kicad/pcbnew_verify_test.cpp
   kicad/corpus_test.cpp
 )
 target_link_libraries(pcbir_tests PRIVATE pcbir_core Catch2::Catch2WithMain pcbir_warnings)
 target_compile_definitions(pcbir_tests PRIVATE
   PCBIR_TEST_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/corpus"
+  # kicad/pcbnew_verify_test.cpp's real-KiCad verification check locates
+  # verify_with_pcbnew.py via this rather than a path relative to the test
+  # binary's own (out-of-tree build) working directory.
+  PCBIR_TEST_KICAD_DIR="${CMAKE_SOURCE_DIR}/tests/kicad"
 )
 # kicad/pad_shape_test.cpp directly unit-tests an internal helper
 # (src/pcbir/kicad/pad_shape.hpp, not part of the public API) since its
