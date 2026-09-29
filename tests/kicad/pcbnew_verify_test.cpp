@@ -116,7 +116,18 @@ namespace {
 
 TEST_CASE("export_kicad_pcb output reopens in real KiCad (pcbnew), when available",
           "[kicad][roundtrip][pcbnew]") {
+#ifdef _MSC_VER
+  // MSVC's /W4 flags std::getenv as deprecated (C4996, "consider
+  // _dupenv_s"); _dupenv_s is Windows-only, so a portable environment-
+  // variable read still needs std::getenv -- suppress just this call
+  // rather than widen the suppression or drop /WX project-wide.
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
   const char* kicad_python = std::getenv("KICAD_PYTHON");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
   if (kicad_python == nullptr) {
     SKIP("KICAD_PYTHON not set; skipping real-pcbnew verification (see "
          "docs/rfcs/0003-kicad-importer-exporter.md -- \"Verification against real KiCad\")");

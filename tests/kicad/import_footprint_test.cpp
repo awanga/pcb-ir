@@ -16,6 +16,7 @@
 #include "pcbir/stackup/serialize.hpp"
 
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <catch2/catch_test_macros.hpp>
@@ -139,8 +140,13 @@ struct Imported {
   return *found;
 }
 
+// pad_number is std::string_view (not const std::string&) so that a call
+// like via_by_pad_number(geometry, "2") doesn't bind a temporary std::string
+// to the parameter -- GCC's -Wdangling-reference flags that pattern for any
+// function returning a reference, even though the temporary actually
+// outlives this call (verified false positive on GCC 13, Ubuntu CI).
 [[nodiscard]] const Via& via_by_pad_number(const GeometrySnapshot& geometry,
-                                           const std::string& pad_number) {
+                                           std::string_view pad_number) {
   const Via* found = nullptr;
   geometry.table<Via>().for_each([&](EntityId, const Via& via) {
     if (via.pad_number == pad_number) {
